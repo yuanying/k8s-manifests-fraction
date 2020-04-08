@@ -1,0 +1,178 @@
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: kube-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: kube-scheduler
+    app.kubernetes.io/instance: kube-scheduler-porkadot
+    app.kubernetes.io/managed-by: porkadot
+    app.kubernetes.io/name: kube-scheduler
+    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/part-of: kubernetes
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kube-scheduler
+      app.kubernetes.io/instance: kube-scheduler-porkadot
+      app.kubernetes.io/managed-by: porkadot
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: porkadot:kube-scheduler
+  labels:
+    app.kubernetes.io/component: kube-scheduler
+    app.kubernetes.io/instance: kube-scheduler-porkadot
+    app.kubernetes.io/managed-by: porkadot
+    app.kubernetes.io/name: kube-scheduler
+    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/part-of: kubernetes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kube-scheduler
+  namespace: kube-system
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: porkadot:volume-scheduler
+  labels:
+    app.kubernetes.io/component: kube-scheduler
+    app.kubernetes.io/instance: kube-scheduler-porkadot
+    app.kubernetes.io/managed-by: porkadot
+    app.kubernetes.io/name: kube-scheduler
+    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/part-of: kubernetes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:volume-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kube-scheduler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: porkadot:kube-scheduler
+  namespace: kube-system
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["secrets", "configmaps"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: porkadot:kube-scheduler
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: porkadot:kube-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kube-scheduler
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: kube-scheduler
+    app.kubernetes.io/instance: kube-scheduler-porkadot
+    app.kubernetes.io/managed-by: porkadot
+    app.kubernetes.io/name: kube-scheduler
+    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/part-of: kubernetes
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: kube-scheduler
+    app.kubernetes.io/instance: kube-scheduler-porkadot
+    app.kubernetes.io/managed-by: porkadot
+    app.kubernetes.io/name: kube-scheduler
+    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/part-of: kubernetes
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kube-scheduler
+      app.kubernetes.io/instance: kube-scheduler-porkadot
+      app.kubernetes.io/managed-by: porkadot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: kube-scheduler
+        app.kubernetes.io/instance: kube-scheduler-porkadot
+        app.kubernetes.io/managed-by: porkadot
+        app.kubernetes.io/name: kube-scheduler
+        app.kubernetes.io/version: v1.15.11
+        app.kubernetes.io/part-of: kubernetes
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ''
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: 'app.kubernetes.io/component'
+                  operator: In
+                  values:
+                  - kube-scheduler
+                - key: 'app.kubernetes.io/managed-by'
+                  operator: In
+                  values:
+                  - porkadot
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: kube-scheduler
+        resources:
+          requests:
+            cpu: 100m
+        image: k8s.gcr.io/kube-scheduler:v1.15.11
+        command:
+        - kube-scheduler
+        - --leader-elect=true
+        - --v=2
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10251  # Note: Using default port. Update if --port option is set differently.
+          initialDelaySeconds: 15
+          timeoutSeconds: 15
+      priorityClassName: system-cluster-critical
+      nodeSelector:
+        k8s.unstable.cloud/master: ""
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      serviceAccountName: kube-scheduler
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+

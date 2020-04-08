@@ -1,0 +1,129 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-checkpointer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-checkpointer
+  namespace: kube-system
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["secrets", "configmaps"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-checkpointer
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-checkpointer
+subjects:
+- kind: ServiceAccount
+  name: pod-checkpointer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-checkpointer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-checkpointer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pod-checkpointer
+subjects:
+- kind: ServiceAccount
+  name: pod-checkpointer
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: pod-checkpointer
+  namespace: kube-system
+  labels:
+    tier: control-plane
+    k8s-app: pod-checkpointer
+spec:
+  selector:
+    matchLabels:
+      tier: control-plane
+      k8s-app: pod-checkpointer
+  template:
+    metadata:
+      labels:
+        tier: control-plane
+        k8s-app: pod-checkpointer
+      annotations:
+        checkpointer.alpha.coreos.com/checkpoint: "true"
+    spec:
+      containers:
+      - name: pod-checkpointer
+        image: quay.io/coreos/pod-checkpointer:83e25e5968391b9eb342042c435d1b3eeddb2be1
+        command:
+        - /checkpoint
+        - --lock-file=/var/run/lock/pod-checkpointer.lock
+        - --kubeconfig=/etc/checkpointer/kubeconfig
+        - --checkpoint-grace-period=5m
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        imagePullPolicy: Always
+        volumeMounts:
+        - mountPath: /etc/checkpointer
+          name: kubeconfig
+        - mountPath: /etc/kubernetes
+          name: etc-kubernetes
+        - mountPath: /var/run
+          name: var-run
+      serviceAccountName: pod-checkpointer
+      hostNetwork: true
+      nodeSelector:
+        k8s.unstable.cloud/master: ""
+      restartPolicy: Always
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      volumes:
+      - name: kubeconfig
+        configMap:
+          name: kubeconfig-in-cluster
+      - name: etc-kubernetes
+        hostPath:
+          path: /etc/kubernetes
+      - name: var-run
+        hostPath:
+          path: /var/run
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate

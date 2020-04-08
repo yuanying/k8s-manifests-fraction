@@ -1,0 +1,50 @@
+nodes:
+  192.168.1.111:
+    labels:
+      "k8s.unstable.cloud/master":
+      "etcd.unstable.cloud/member": node111
+    taints:
+      "node-role.kubernetes.io/master": ":NoSchedule"
+  192.168.1.112:
+    labels:
+      "k8s.unstable.cloud/master":
+      "etcd.unstable.cloud/member": node112
+    taints:
+      "node-role.kubernetes.io/master": ":NoSchedule"
+  192.168.1.113:
+    labels:
+      "k8s.unstable.cloud/master":
+      "etcd.unstable.cloud/member": node113
+    taints:
+      "node-role.kubernetes.io/master": ":NoSchedule"
+  192.168.1.121:
+  192.168.1.131:
+  192.168.1.132:
+  192.168.1.133:
+
+bootstrap:
+  node:
+    hostname: 192.168.1.131
+
+lb:
+  metallb:
+    config: |
+      address-pools:
+      - name: default
+        protocol: layer2
+        addresses:
+        - 192.168.1.101/32
+        - 192.168.1.190-192.168.1.254
+
+cni:
+  flannel:
+    backend: host-gw
+
+kubernetes:
+  kubernetes_version: v1.15.11
+  cluster_name: fraction
+  control_plane_endpoint: '192.168.1.101:6443'
+
+  proxy:
+    config: {}
+      # mode: 'ipvs'
