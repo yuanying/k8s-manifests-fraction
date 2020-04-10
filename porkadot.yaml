@@ -24,7 +24,7 @@ nodes:
 
 bootstrap:
   node:
-    hostname: 192.168.1.131
+    hostname: 192.168.1.133
 
 lb:
   metallb:
@@ -35,6 +35,9 @@ lb:
         addresses:
         - 192.168.1.101/32
         - 192.168.1.190-192.168.1.254
+
+connection:
+  user: yuanying
 
 cni:
   flannel:
