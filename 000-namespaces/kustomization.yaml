@@ -1,0 +1,14 @@
+commonLabels:
+  region: fraction
+bases:
+- ../base/000-namespaces
+resources:
+- aphrael.yaml
+- comics.yaml
+- ddns.yaml
+- grafana.yaml
+- hackmd.yaml
+- mailserver.yaml
+- prometheus.yaml
+- proxy.yaml
+- sites.yaml
