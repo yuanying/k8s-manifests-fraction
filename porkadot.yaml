@@ -1,17 +1,20 @@
 nodes:
   192.168.1.111:
+    connection: { user: core }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node111
     taints:
       "node-role.kubernetes.io/master": ":NoSchedule"
   192.168.1.112:
+    connection: { user: core }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node112
     taints:
       "node-role.kubernetes.io/master": ":NoSchedule"
   192.168.1.113:
+    connection: { user: core }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node113
