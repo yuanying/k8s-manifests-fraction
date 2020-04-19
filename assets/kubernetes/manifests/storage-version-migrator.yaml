@@ -1,0 +1,327 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: storageversionmigrations.migration.k8s.io
+spec:
+  group: migration.k8s.io
+  names:
+    kind: StorageVersionMigration
+    listKind: StorageVersionMigrationList
+    plural: storageversionmigrations
+    singular: storageversionmigration
+  scope: Cluster
+  subresources:
+    status: {}
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+  "validation":
+    "openAPIV3Schema":
+      description: StorageVersionMigration represents a migration of stored data to
+        the latest storage version.
+      type: object
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: Specification of the migration.
+          type: object
+          required:
+          - resource
+          properties:
+            continueToken:
+              description: The token used in the list options to get the next chunk
+                of objects to migrate. When the .status.conditions indicates the migration
+                is "Running", users can use this token to check the progress of the
+                migration.
+              type: string
+            resource:
+              description: The resource that is being migrated. The migrator sends
+                requests to the endpoint serving the resource. Immutable.
+              type: object
+              properties:
+                group:
+                  description: The name of the group.
+                  type: string
+                resource:
+                  description: The name of the resource.
+                  type: string
+                version:
+                  description: The name of the version.
+                  type: string
+        status:
+          description: Status of the migration.
+          type: object
+          properties:
+            conditions:
+              description: The latest available observations of the migration's current
+                state.
+              type: array
+              items:
+                description: Describes the state of a migration at a certain point.
+                type: object
+                required:
+                - status
+                - type
+                properties:
+                  lastUpdateTime:
+                    description: The last time this condition was updated.
+                    type: string
+                    format: date-time
+                  message:
+                    description: A human readable message indicating details about
+                      the transition.
+                    type: string
+                  reason:
+                    description: The reason for the condition's last transition.
+                    type: string
+                  status:
+                    description: Status of the condition, one of True, False, Unknown.
+                    type: string
+                  type:
+                    description: Type of the condition.
+                    type: string
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: storagestates.migration.k8s.io
+spec:
+  group: migration.k8s.io
+  names:
+    kind: StorageState
+    listKind: StorageStateList
+    plural: storagestates
+    singular: storagestate
+  scope: Cluster
+  subresources:
+    status: {}
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+  "validation":
+    "openAPIV3Schema":
+      description: The state of the storage of a specific resource.
+      type: object
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          description: The name must be "<.spec.resource.resouce>.<.spec.resource.group>".
+          type: object
+        spec:
+          description: Specification of the storage state.
+          type: object
+          properties:
+            resource:
+              description: The resource this storageState is about.
+              type: object
+              properties:
+                group:
+                  description: The name of the group.
+                  type: string
+                resource:
+                  description: The name of the resource.
+                  type: string
+        status:
+          description: Status of the storage state.
+          type: object
+          properties:
+            currentStorageVersionHash:
+              description: The hash value of the current storage version, as shown
+                in the discovery document served by the API server. Storage Version
+                is the version to which objects are converted to before persisted.
+              type: string
+            lastHeartbeatTime:
+              description: LastHeartbeatTime is the last time the storage migration
+                triggering controller checks the storage version hash of this resource
+                in the discovery document and updates this field.
+              type: string
+              format: date-time
+            persistedStorageVersionHashes:
+              description: The hash values of storage versions that persisted instances
+                of spec.resource might still be encoded in. "Unknown" is a valid value
+                in the list, and is the default value. It is not safe to upgrade or
+                downgrade to an apiserver binary that does not support all versions
+                listed in this field, or if "Unknown" is listed. Once the storage
+                version migration for this resource has completed, the value of this
+                field is refined to only contain the currentStorageVersionHash. Once
+                the apiserver has changed the storage version, the new storage version
+                is appended to the list.
+              type: array
+              items:
+                type: string
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-trigger
+rules:
+- apiGroups: ["migration.k8s.io"]
+  resources: ["storagestates"]
+  verbs: ["watch", "get", "list", "delete", "create", "update"]
+- apiGroups: ["migration.k8s.io"]
+  resources: ["storageversionmigrations"]
+  verbs: ["watch", "get", "list", "delete", "create"]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-crd-creator
+rules:
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["create", "delete", "get"]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-initializer
+rules:
+- apiGroups: ["migration.k8s.io"]
+  resources: ["storageversionmigrations"]
+  verbs: ["create"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-migrator
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-trigger
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: storage-version-migration-trigger
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-crd-creator
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: storage-version-migration-crd-creator
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: storage-version-migration-initializer
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: storage-version-migration-initializer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trigger
+  namespace: kube-system
+  labels:
+    app: trigger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trigger
+  template:
+    metadata:
+      labels:
+        app: trigger
+    spec:
+      containers:
+      - name: trigger
+        image: yuanying/storage-version-migration-trigger:v0.1
+        args:
+        - --kubeconfig=/etc/trigger/kubeconfig
+        volumeMounts:
+        - mountPath: /etc/trigger
+          name: kubeconfig
+      volumes:
+      - name: kubeconfig
+        configMap:
+          name: kubeconfig-in-cluster-latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: migrator
+  namespace: kube-system
+  labels:
+    app: migrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: migrator
+  template:
+    metadata:
+      labels:
+        app: migrator
+    spec:
+      containers:
+      - name: migrator
+        image: yuanying/storage-version-migration-migrator:v0.1
+        command:
+          - /migrator
+          - --v=2
+          - --alsologtostderr
+          - --kube-api-qps=40
+          - --kube-api-burst=1000
+          - --kubeconfig=/etc/migrator/kubeconfig
+        volumeMounts:
+        - mountPath: /etc/migrator
+          name: kubeconfig
+      volumes:
+      - name: kubeconfig
+        configMap:
+          name: kubeconfig-in-cluster-latest
