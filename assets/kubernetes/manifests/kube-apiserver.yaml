@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: kube-apiserver-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
 spec:
   selector:
@@ -24,7 +24,7 @@ spec:
         app.kubernetes.io/instance: kube-apiserver-porkadot
         app.kubernetes.io/managed-by: porkadot
         app.kubernetes.io/name: kube-apiserver
-        app.kubernetes.io/version: v1.15.11
+        app.kubernetes.io/version: v1.16.9
         app.kubernetes.io/part-of: kubernetes
       annotations:
         checkpointer.alpha.coreos.com/checkpoint: "true"
@@ -34,7 +34,7 @@ spec:
         resources:
           requests:
             cpu: 250m
-        image: k8s.gcr.io/kube-apiserver:v1.15.11
+        image: k8s.gcr.io/kube-apiserver:v1.16.9
         command:
         - kube-apiserver
         - --advertise-address=$(POD_IP)

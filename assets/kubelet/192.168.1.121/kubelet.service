@@ -11,8 +11,8 @@ ExecStart=/opt/bin/kubelet \
     --network-plugin=cni \
     --pod-infra-container-image=k8s.gcr.io/pause:3.1 \
     --hostname-override=192.168.1.121 \
-    --node-labels= \
-    --register-with-taints= \
+    --node-labels=dedicated=nfs,role=backup,storage.zfs \
+    --register-with-taints=dedicated=nfs:NoSchedule \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always
 StartLimitInterval=0

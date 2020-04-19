@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
 spec:
   minAvailable: 1
@@ -28,7 +28,7 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -49,7 +49,7 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
 ---
 apiVersion: apps/v1
@@ -62,7 +62,7 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
 spec:
   replicas: 2
@@ -78,7 +78,7 @@ spec:
         app.kubernetes.io/instance: kube-controller-manager-porkadot
         app.kubernetes.io/managed-by: porkadot
         app.kubernetes.io/name: kube-controller-manager
-        app.kubernetes.io/version: v1.15.11
+        app.kubernetes.io/version: v1.16.9
         app.kubernetes.io/part-of: kubernetes
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
@@ -104,7 +104,7 @@ spec:
         resources:
           requests:
             cpu: 200m
-        image: k8s.gcr.io/kube-controller-manager:v1.15.11
+        image: k8s.gcr.io/kube-controller-manager:v1.16.9
         command:
         - kube-controller-manager
         - --allocate-node-cidrs=true

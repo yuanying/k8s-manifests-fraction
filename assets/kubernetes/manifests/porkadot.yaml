@@ -34,7 +34,7 @@ spec:
     app.kubernetes.io/instance: kube-apiserver-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.15.11
+    app.kubernetes.io/version: v1.16.9
     app.kubernetes.io/part-of: kubernetes
   ports:
   - name: https
