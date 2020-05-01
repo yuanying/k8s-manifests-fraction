@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.16.9
+    app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
 spec:
   minAvailable: 1
@@ -28,7 +28,7 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.16.9
+    app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -48,7 +48,7 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.16.9
+    app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -70,7 +70,7 @@ rules:
   verbs: ["get", "watch", "list"]
 - apiGroups: [""] # "" indicates the core API group
   resources: ["secrets", "configmaps"]
-  verbs: ["get"]
+  verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -96,7 +96,7 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.16.9
+    app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
 ---
 apiVersion: apps/v1
@@ -109,7 +109,7 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.16.9
+    app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
 spec:
   replicas: 2
@@ -125,7 +125,7 @@ spec:
         app.kubernetes.io/instance: kube-scheduler-porkadot
         app.kubernetes.io/managed-by: porkadot
         app.kubernetes.io/name: kube-scheduler
-        app.kubernetes.io/version: v1.16.9
+        app.kubernetes.io/version: v1.17.5
         app.kubernetes.io/part-of: kubernetes
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
@@ -151,7 +151,7 @@ spec:
         resources:
           requests:
             cpu: 100m
-        image: k8s.gcr.io/kube-scheduler:v1.16.9
+        image: k8s.gcr.io/kube-scheduler:v1.17.5
         command:
         - kube-scheduler
         - --leader-elect=true

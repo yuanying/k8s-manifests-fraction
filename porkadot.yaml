@@ -59,7 +59,7 @@ etcd:
     value: 'arm64'
 
 kubernetes:
-  kubernetes_version: v1.16.9
+  kubernetes_version: v1.17.5
   cluster_name: fraction
   control_plane_endpoint: '192.168.1.101:6443'
 
