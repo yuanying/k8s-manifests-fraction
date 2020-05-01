@@ -77,7 +77,7 @@ spec:
     spec:
       containers:
       - name: pod-checkpointer
-        image: quay.io/coreos/pod-checkpointer:83e25e5968391b9eb342042c435d1b3eeddb2be1
+        image: yuanying/pod-checkpointer:v0.18.0
         command:
         - /checkpoint
         - --lock-file=/var/run/lock/pod-checkpointer.lock

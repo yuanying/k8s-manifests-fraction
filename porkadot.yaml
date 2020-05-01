@@ -1,20 +1,20 @@
 nodes:
   192.168.1.111:
-    connection: { user: core }
+    connection: { user: ubuntu }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node111
     taints:
       "node-role.kubernetes.io/master": ":NoSchedule"
   192.168.1.112:
-    connection: { user: core }
+    connection: { user: ubuntu }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node112
     taints:
       "node-role.kubernetes.io/master": ":NoSchedule"
   192.168.1.113:
-    connection: { user: core }
+    connection: { user: ubuntu }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node113
@@ -51,6 +51,12 @@ connection:
 cni:
   flannel:
     backend: host-gw
+
+etcd:
+  image_tag: v3.4.3-arm64
+  extra_env:
+  - name: 'ETCD_UNSUPPORTED_ARCH'
+    value: 'arm64'
 
 kubernetes:
   kubernetes_version: v1.16.9

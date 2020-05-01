@@ -10,7 +10,7 @@ spec:
   hostNetwork: true
   containers:
   - name: etcd
-    image: gcr.io/etcd-development/etcd:v3.3.17
+    image: gcr.io/etcd-development/etcd:v3.4.3-arm64
     command:
     - /usr/local/bin/etcd
     - --name=node111
@@ -30,6 +30,9 @@ spec:
     - --data-dir=/var/lib/etcd
     - --heartbeat-interval=1000
     - --election-timeout=10000
+    env:
+    - name: ETCD_UNSUPPORTED_ARCH
+      value: arm64
     volumeMounts:
     - mountPath: /var/lib/etcd
       name: etcd

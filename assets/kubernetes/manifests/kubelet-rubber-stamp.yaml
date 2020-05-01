@@ -24,7 +24,7 @@ spec:
         - name: kubelet-rubber-stamp
           # image: quay.io/kontena/kubelet-rubber-stamp-amd64:0.2
           # Use following image until issue is fixed
-          image: yuanying/kubelet-rubber-stamp:0.2.0.y01
+          image: yuanying/kubelet-rubber-stamp:0.2.0.y02
           args:
             - "--v=2"
           imagePullPolicy: Always
