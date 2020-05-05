@@ -1,0 +1,7 @@
+commonLabels:
+  region: fraction
+  app: nginx-ingress
+bases:
+- ../base/nginx-ingress
+patches:
+- path: patch.yaml
