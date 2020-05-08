@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/name: kube-scheduler
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-scheduler
 spec:
   minAvailable: 1
   selector:
@@ -30,6 +31,7 @@ metadata:
     app.kubernetes.io/name: kube-scheduler
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-scheduler
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -50,6 +52,7 @@ metadata:
     app.kubernetes.io/name: kube-scheduler
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-scheduler
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -98,6 +101,7 @@ metadata:
     app.kubernetes.io/name: kube-scheduler
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-scheduler
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -111,6 +115,7 @@ metadata:
     app.kubernetes.io/name: kube-scheduler
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-scheduler
 spec:
   replicas: 2
   selector:
@@ -127,6 +132,7 @@ spec:
         app.kubernetes.io/name: kube-scheduler
         app.kubernetes.io/version: v1.17.5
         app.kubernetes.io/part-of: kubernetes
+        k8s-app: kube-scheduler
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
     spec:

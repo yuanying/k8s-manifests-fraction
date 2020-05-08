@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/name: kube-controller-manager
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-controller-manager
 spec:
   minAvailable: 1
   selector:
@@ -30,6 +31,7 @@ metadata:
     app.kubernetes.io/name: kube-controller-manager
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-controller-manager
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -51,6 +53,7 @@ metadata:
     app.kubernetes.io/name: kube-controller-manager
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-controller-manager
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -64,6 +67,7 @@ metadata:
     app.kubernetes.io/name: kube-controller-manager
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-controller-manager
 spec:
   replicas: 2
   selector:
@@ -80,6 +84,7 @@ spec:
         app.kubernetes.io/name: kube-controller-manager
         app.kubernetes.io/version: v1.17.5
         app.kubernetes.io/part-of: kubernetes
+        k8s-app: kube-controller-manager
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
     spec:
