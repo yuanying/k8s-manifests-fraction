@@ -9,6 +9,5 @@ resources:
 - grafana.yaml
 - hackmd.yaml
 - mailserver.yaml
-- prometheus.yaml
 - proxy.yaml
 - sites.yaml

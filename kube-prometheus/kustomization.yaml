@@ -1,0 +1,16 @@
+resources:
+- ../base/kube-prometheus/
+
+configMapGenerator:
+- name: kp-config
+  namespace: monitoring
+  behavior: merge
+  literals:
+  - DOMAIN=fraction.jp
+
+secretGenerator:
+- name: alertmanager-main
+  namespace: monitoring
+  behavior: merge
+  files:
+  - secrets/alertmanager.yaml
