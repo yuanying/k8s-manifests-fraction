@@ -1,0 +1,5 @@
+commonLabels:
+  region: fraction
+resources:
+- ../base/sshd
+

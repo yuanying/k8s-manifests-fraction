@@ -30,4 +30,10 @@ net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
 EOF
 
+cat <<EOF > /etc/iscsi/initiatorname.iscsi
+InitiatorName=iqn.2020-04.cloud.unstable:192.168.1.132
+EOF
+
+systemctl restart iscsid.service
+
 sysctl --system

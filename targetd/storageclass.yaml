@@ -1,0 +1,10 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: iscsi-targetd-vg-targetd
+parameters:
+  targetPortal: 192.168.1.121:3260
+  iqn: iqn.2020-05.cloud.unstable:targetd
+  initiators: iqn.2020-04.cloud.unstable:192.168.1.111,iqn.2020-04.cloud.unstable:192.168.1.112,iqn.2020-04.cloud.unstable:192.168.1.113,iqn.2020-04.cloud.unstable:192.168.1.121,iqn.2020-04.cloud.unstable:192.168.1.131,iqn.2020-04.cloud.unstable:192.168.1.132,iqn.2020-04.cloud.unstable:192.168.1.133
+  chapAuthDiscovery: "false"
+  chapAuthSession: "false"

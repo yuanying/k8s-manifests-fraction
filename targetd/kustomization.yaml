@@ -1,0 +1,23 @@
+commonLabels:
+  region: staging
+resources:
+- ../base/targetd
+
+
+generatorOptions:
+   disableNameSuffixHash: true
+
+secretGenerator:
+- name: targetd
+  namespace: targetd
+  files:
+  - secrets/targetd.yaml
+  type: Opaque
+- name: targetd-account
+  namespace: targetd
+  envs:
+  - secrets/targetd.env.txt
+  type: Opaque
+
+patchesStrategicMerge:
+- storageclass.yaml
