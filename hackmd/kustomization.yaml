@@ -1,0 +1,24 @@
+commonLabels:
+  region: staging
+resources:
+- ../base/hackmd
+
+secretGenerator:
+- name: github
+  namespace: hackmd
+  # behavior: merge
+  envs:
+  - secrets/github.env.txt
+- name: postgresql
+  namespace: hackmd
+  behavior: merge
+  envs:
+  - secrets/postgresql.env.txt
+
+configMapGenerator:
+- name: cmd-config
+  namespace: hackmd
+  behavior: merge
+  literals:
+  - NFS_SERVER=192.168.1.121
+  - HACKMD_URL=text.fraction.jp

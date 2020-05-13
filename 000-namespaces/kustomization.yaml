@@ -6,7 +6,6 @@ resources:
 - aphrael.yaml
 - comics.yaml
 - ddns.yaml
-- hackmd.yaml
 - mailserver.yaml
 - proxy.yaml
 - sites.yaml
