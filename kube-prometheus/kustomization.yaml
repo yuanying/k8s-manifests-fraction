@@ -14,3 +14,7 @@ secretGenerator:
   behavior: merge
   files:
   - secrets/alertmanager.yaml
+- name: basic-auth
+  namespace: monitoring
+  files:
+  - secrets/auth
