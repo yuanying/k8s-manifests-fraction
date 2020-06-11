@@ -1,0 +1,19 @@
+resources:
+- ../base/filestash/
+
+configMapGenerator:
+- name: fs-config
+  namespace: filestash
+  behavior: merge
+  literals:
+  - NFS_SERVER=192.168.1.121
+  - FILESTASH_URL=files.fraction.jp
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+- name: basic-auth
+  namespace: filestash
+  files:
+  - secrets/auth
