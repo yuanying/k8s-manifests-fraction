@@ -1,6 +1,9 @@
 resources:
 - ../base/filestash/
 
+patchesStrategicMerge:
+- patches/deploy.yaml
+
 configMapGenerator:
 - name: fs-config
   namespace: filestash
