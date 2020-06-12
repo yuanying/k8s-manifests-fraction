@@ -1,0 +1,113 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    name: proxy
+  name: proxy
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    name: proxy
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    name: proxy
+  name: proxy
+data:
+  000-default.conf: |
+    server_names_hash_bucket_size 64;
+    server {
+        listen       80;
+        server_name  localhost;
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+  test.conf: |
+    server {
+      listen 80;
+      server_name test.fraction.jp;
+      server_tokens off;
+      client_max_body_size 2G;
+      location / {
+        proxy_pass http://192.168.1.82:8080;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    nginx: proxy
+  name: proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: proxy
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: proxy
+    spec:
+      containers:
+      - image: nginx:alpine
+        imagePullPolicy: Always
+        name: proxy
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        ports:
+          - name: http
+            containerPort: 80
+        volumeMounts:
+          - name: config
+            mountPath: /etc/nginx/conf.d
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: proxy
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: 'true'
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+  labels:
+    name: proxy
+  name: proxy
+spec:
+  rules:
+    - host: "test.fraction.jp"
+      http:
+        paths:
+          - backend:
+              serviceName: proxy
+              servicePort: 80
+  tls:
+    - secretName: proxy-tls
+      hosts:
+        - "test.fraction.jp"

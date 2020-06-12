@@ -1,0 +1,15 @@
+commonLabels:
+  region: fraction
+  app: proxy
+namespace: proxy
+resources:
+- proxy.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+- name: basic-auth
+  namespace: proxy
+  files:
+  - secrets/auth
