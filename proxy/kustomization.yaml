@@ -4,6 +4,7 @@ commonLabels:
 namespace: proxy
 resources:
 - proxy.yaml
+- code.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
