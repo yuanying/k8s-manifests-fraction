@@ -30,6 +30,12 @@ nodes:
   192.168.1.131:
   192.168.1.132:
   192.168.1.133:
+  oeilvert:
+    connection: { user: yuanying, hostname: 192.168.1.82 }
+    labels:
+      "role": worker
+    taints:
+      "dedicated": "work:NoSchedule"
 
 bootstrap:
   node:
