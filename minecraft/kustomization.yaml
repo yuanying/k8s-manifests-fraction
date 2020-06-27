@@ -1,0 +1,9 @@
+commonLabels:
+  region: fraction
+resources:
+- ../base/minecraft
+- resources/pvc.yaml
+
+patchesStrategicMerge:
+- patches/svc.yaml
+- patches/cm.yaml
