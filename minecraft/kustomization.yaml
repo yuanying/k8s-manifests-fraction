@@ -5,5 +5,5 @@ resources:
 - resources/pvc.yaml
 
 patchesStrategicMerge:
-- patches/svc.yaml
+# - patches/svc.yaml
 - patches/cm.yaml
