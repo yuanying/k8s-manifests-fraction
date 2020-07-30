@@ -24,6 +24,7 @@ nodes:
     labels:
       "dedicated": nfs
       "tgtd.unstable.cloud/storage": ""
+      "zfs.unstable.cloud/storage": ""
       "role": backup
       "storage.zfs":
     taints:
@@ -35,8 +36,11 @@ nodes:
     connection: { user: yuanying, hostname: 192.168.1.82 }
     labels:
       "role": worker
+      "tgtd.unstable.cloud/storage": ""
+      "zfs.unstable.cloud/storage": ""
     taints:
       "dedicated": "work:NoSchedule"
+      "tgtd.unstable.cloud/storage": ":NoSchedule"
 
 bootstrap:
   node:
