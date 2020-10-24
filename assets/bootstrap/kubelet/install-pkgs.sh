@@ -22,12 +22,19 @@ if type apt-get > /dev/null 2>&1 ;then
       nfs-common \
       socat \
       udev \
-      util-linux
+      util-linux \
+      open-iscsi
 fi
 
 cat <<EOF >  /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
 EOF
+
+cat <<EOF > /etc/iscsi/initiatorname.iscsi
+InitiatorName=iqn.2020-04.cloud.unstable:192.168.1.133
+EOF
+
+systemctl restart iscsid.service
 
 sysctl --system

@@ -11,8 +11,8 @@ ExecStart=/opt/bin/kubelet \
     --network-plugin=cni \
     --pod-infra-container-image=k8s.gcr.io/pause:3.1 \
     --hostname-override=oeilvert \
-    --node-labels=role=worker \
-    --register-with-taints=dedicated=work:NoSchedule \
+    --node-labels=role=worker,tgtd.unstable.cloud/storage=,zfs.unstable.cloud/storage= \
+    --register-with-taints=dedicated=work:NoSchedule,tgtd.unstable.cloud/storage=:NoSchedule \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always
 StartLimitInterval=0

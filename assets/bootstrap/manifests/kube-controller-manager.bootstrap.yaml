@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/name: kube-controller-manager
     app.kubernetes.io/version: v1.17.5
     app.kubernetes.io/part-of: kubernetes
+    k8s-app: kube-controller-manager
 spec:
   containers:
   - name: kube-controller-manager

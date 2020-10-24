@@ -22,7 +22,8 @@ if type apt-get > /dev/null 2>&1 ;then
       nfs-common \
       socat \
       udev \
-      util-linux
+      util-linux \
+      open-iscsi
 fi
 
 cat <<EOF >  /etc/sysctl.d/k8s.conf
