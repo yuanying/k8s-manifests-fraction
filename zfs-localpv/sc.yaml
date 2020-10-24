@@ -6,7 +6,7 @@ parameters:
   compression: "off"
   dedup: "off"
   fstype: ext4
-  poolname: tank/pv
+  poolname: tank
   recordsize: 4k
 provisioner: zfs.csi.openebs.io
 reclaimPolicy: Delete
