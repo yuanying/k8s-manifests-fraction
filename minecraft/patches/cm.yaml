@@ -8,7 +8,7 @@ data:
   # Remove # from in front of line if changing from default values.
   EULA: "TRUE" # Must accept EULA to use this minecraft server
   #GAMEMODE: "survival" # Options: survival, creative, adventure
-  DIFFICULTY: "easy" # Options: peaceful, easy, normal, hard
+  DIFFICULTY: "normal" # Options: peaceful, easy, normal, hard
   #DEFAULT_PLAYER_PERMISSION_LEVEL: "member" # Options: visitor, member, operator
   #LEVEL_NAME: "my_minecraft_world"
   #LEVEL_SEED: "33480944"
