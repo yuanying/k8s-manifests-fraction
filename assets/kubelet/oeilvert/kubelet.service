@@ -12,7 +12,7 @@ ExecStart=/opt/bin/kubelet \
     --pod-infra-container-image=k8s.gcr.io/pause:3.1 \
     --hostname-override=oeilvert \
     --node-labels=role=worker,tgtd.unstable.cloud/storage=,zfs.unstable.cloud/storage= \
-    --register-with-taints=dedicated=work:NoSchedule,tgtd.unstable.cloud/storage=:NoSchedule \
+    --register-with-taints= \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always
 StartLimitInterval=0

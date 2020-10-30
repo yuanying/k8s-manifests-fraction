@@ -4,6 +4,7 @@ export LC_ALL=C
 ROOT=$(dirname "${BASH_SOURCE}")
 
 if type apt-get > /dev/null 2>&1 ;then
+  export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y \
       ca-certificates \

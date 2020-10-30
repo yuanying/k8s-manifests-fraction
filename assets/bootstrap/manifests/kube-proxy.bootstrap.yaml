@@ -11,13 +11,13 @@ metadata:
     app.kubernetes.io/instance: kube-proxy-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-proxy
-    app.kubernetes.io/version: v1.17.5
+    app.kubernetes.io/version: v1.18.10
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-proxy
 spec:
   containers:
   - name: kube-proxy
-    image: k8s.gcr.io/kube-proxy:v1.17.5
+    image: k8s.gcr.io/kube-proxy:v1.18.10
     imagePullPolicy: IfNotPresent
     command:
     - kube-proxy

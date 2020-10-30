@@ -24,7 +24,7 @@ spec:
         - name: kubelet-rubber-stamp
           # image: quay.io/kontena/kubelet-rubber-stamp-amd64:0.2
           # Use following image until issue is fixed
-          image: yuanying/kubelet-rubber-stamp:0.2.0.y02
+          image: yuanying/kubelet-rubber-stamp:0.3.0.y01
           args:
             - "--v=2"
           imagePullPolicy: Always
@@ -59,9 +59,18 @@ rules:
 - apiGroups:
   - certificates.k8s.io
   resources:
+  - signers
+  # legacy-unknown: support before kubernetes-1.18.0
+  resourceNames:
+  - "kubernetes.io/legacy-unknown"
+  - "kubernetes.io/kubelet-serving"
+  verbs:
+  - approve
+- apiGroups:
+  - certificates.k8s.io
+  resources:
   - certificatesigningrequests
   verbs:
-  - delete
   - get
   - list
   - watch
