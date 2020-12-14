@@ -46,6 +46,16 @@ data:
         proxy_pass http://192.168.1.82:8080;
       }
     }
+  txt.conf: |
+    server {
+      listen 80;
+      server_name txt.fraction.jp;
+      server_tokens off;
+      client_max_body_size 2G;
+      location / {
+        proxy_pass http://192.168.1.82:8081;
+      }
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -107,7 +117,14 @@ spec:
           - backend:
               serviceName: proxy
               servicePort: 80
+    - host: "txt.fraction.jp"
+      http:
+        paths:
+          - backend:
+              serviceName: proxy
+              servicePort: 80
   tls:
     - secretName: proxy-tls
       hosts:
         - "test.fraction.jp"
+        - "txt.fraction.jp"
