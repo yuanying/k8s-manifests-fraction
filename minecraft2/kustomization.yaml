@@ -9,4 +9,4 @@ patchesStrategicMerge:
 - patches/cm.yaml
 - patches/deploy.yaml
 
-namespace: minecraft
+namespace: minecraft2
