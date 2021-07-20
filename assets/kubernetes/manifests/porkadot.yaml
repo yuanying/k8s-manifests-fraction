@@ -34,7 +34,7 @@ spec:
     app.kubernetes.io/instance: kube-apiserver-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.18.10
+    app.kubernetes.io/version: v1.19.6
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-apiserver
   ports:
