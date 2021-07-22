@@ -12,6 +12,7 @@ authorization:
   webhook:
     cacheAuthorizedTTL: 0s
     cacheUnauthorizedTTL: 0s
+cgroupDriver: systemd
 clusterDNS:
   - 10.254.0.10
 clusterDomain: cluster.local

@@ -5,11 +5,13 @@ Documentation=http://kubernetes.io/docs/
 [Service]
 EnvironmentFile=-/etc/default/kubelet
 ExecStart=/opt/bin/kubelet \
+    --container-runtime=remote \
+    --container-runtime-endpoint=/run/containerd/containerd.sock \
     --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
     --network-plugin=cni \
-    --pod-infra-container-image=k8s.gcr.io/pause:3.1 \
+    --pod-infra-container-image=k8s.gcr.io/pause:3.4.1 \
     --hostname-override=192.168.1.132 \
     --node-labels= \
     --register-with-taints= \
