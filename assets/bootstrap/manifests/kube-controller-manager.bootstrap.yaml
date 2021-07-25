@@ -9,32 +9,35 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.19.6
+    app.kubernetes.io/version: v1.20.3
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-controller-manager
 spec:
   containers:
   - name: kube-controller-manager
-    image: k8s.gcr.io/kube-controller-manager:v1.19.6
+    image: k8s.gcr.io/kube-controller-manager:v1.20.3
     command:
     - kube-controller-manager
     - --allocate-node-cidrs=true
     - --cluster-cidr=10.244.0.0/16
-    - --cluster-signing-cert-file=/etc/kubernetes/bootstrap/secrets/kubernetes/ca.crt
-    - --cluster-signing-key-file=/etc/kubernetes/bootstrap/secrets/kubernetes/ca.key
+    - --cluster-signing-cert-file=/etc/kubernetes/pki/kubernetes/ca.crt
+    - --cluster-signing-key-file=/etc/kubernetes/pki/kubernetes/ca.key
     - --controllers=*,bootstrapsigner,tokencleaner
-    - --kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
     - --leader-elect=true
     - --node-cidr-mask-size=24
-    - --root-ca-file=/etc/kubernetes/bootstrap/secrets/kubernetes/ca.crt
-    - --service-account-private-key-file=/etc/kubernetes/bootstrap/secrets/kubernetes/sa.key
+    - --root-ca-file=/etc/kubernetes/pki/kubernetes/ca.crt
+    - --service-account-private-key-file=/etc/kubernetes/pki/kubernetes/sa.key
     - --use-service-account-credentials=true
     - --v=2
+    - --kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
     volumeMounts:
     - name: var-run-kubernetes
       mountPath: /var/run/kubernetes
-    - name: kubernetes
-      mountPath: /etc/kubernetes
+    - name: kubernetes-secrets
+      mountPath: /etc/kubernetes/pki
+      readOnly: true
+    - name: kubernetes-bootstrap
+      mountPath: /etc/kubernetes/bootstrap
       readOnly: true
     - mountPath: /usr/libexec/kubernetes/kubelet-plugins/volume/exec
       name: flexvolume-dir
@@ -51,9 +54,12 @@ spec:
   volumes:
   - name: var-run-kubernetes
     emptyDir: {}
-  - name: kubernetes
+  - name: kubernetes-secrets
     hostPath:
-      path: /etc/kubernetes
+      path: /etc/kubernetes/bootstrap/secrets
+  - name: kubernetes-bootstrap
+    hostPath:
+      path: /etc/kubernetes/bootstrap
   - hostPath:
       path: /etc/ssl/certs
       type: DirectoryOrCreate

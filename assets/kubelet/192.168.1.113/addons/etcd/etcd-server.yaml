@@ -10,7 +10,7 @@ spec:
   hostNetwork: true
   containers:
   - name: etcd
-    image: gcr.io/etcd-development/etcd:v3.4.3-arm64
+    image: gcr.io/etcd-development/etcd:v3.4.13-arm64
     command:
     - /usr/local/bin/etcd
     - --name=node113

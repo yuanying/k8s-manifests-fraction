@@ -61,7 +61,7 @@ cni:
     backend: host-gw
 
 etcd:
-  image_tag: v3.4.3-arm64
+  image_tag: v3.4.13-arm64
   extra_env:
   - name: 'ETCD_UNSUPPORTED_ARCH'
     value: 'arm64'
