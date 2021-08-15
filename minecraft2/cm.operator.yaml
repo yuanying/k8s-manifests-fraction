@@ -1,0 +1,23 @@
+apiVersion: v1
+data:
+  ALLOW_CHEATS: "true"
+  DEFAULT_PLAYER_PERMISSION_LEVEL: operator
+  DIFFICULTY: normal
+  EULA: "TRUE"
+  OPS: "2535406639803577"
+  SERVER_NAME: cheat
+  WHITE_LIST: "false"
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"ALLOW_CHEATS":"true","DEFAULT_PLAYER_PERMISSION_LEVEL":"operator","DIFFICULTY":"normal","EULA":"TRUE","OPS":"2535406639803577","SERVER_NAME":"cheat","WHITE_LIST":"false"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"app":"bds","region":"fraction","role":"service-config"},"name":"minecraft-bedrock","namespace":"minecraft2"}}
+  creationTimestamp: "2021-06-25T05:50:08Z"
+  labels:
+    app: bds
+    region: fraction
+    role: service-config
+  name: minecraft-bedrock
+  namespace: minecraft2
+  resourceVersion: "472874661"
+  uid: 02db7492-a3ec-43be-89b9-b1282b2526b5
