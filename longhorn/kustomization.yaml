@@ -1,0 +1,4 @@
+commonLabels:
+  region: fraction
+resources:
+- ../base/longhorn

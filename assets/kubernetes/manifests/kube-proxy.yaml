@@ -84,7 +84,7 @@ data:
     oomScoreAdj: -999
     portRange: ''
     udpIdleTimeout: 250ms
-    clusterCIDR: 10.244.0.0/16
+    clusterCIDR: 10.244.0.0/16,fde7:4ad6:425d::/48
 
   kubeconfig.conf: |
     apiVersion: v1

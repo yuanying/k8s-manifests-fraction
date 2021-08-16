@@ -4,9 +4,6 @@ kind: StatefulSet
 metadata:
   name: bds
 spec:
-  # template:
-  #   spec:
-  #     hostNetwork: true
   volumeClaimTemplates:
   - metadata:
       name: data

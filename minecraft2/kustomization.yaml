@@ -9,4 +9,14 @@ patchesStrategicMerge:
 - patches/cm.yaml
 - patches/deploy.yaml
 
+patchesJson6902:
+- target:
+    version: v1
+    kind: Service
+    name: bds
+  patch: |-
+   - op: replace
+     path: /spec/ports/0/port
+     value: 19133
+
 namespace: minecraft2

@@ -52,6 +52,7 @@ lb:
         addresses:
         - 192.168.1.101/32
         - 192.168.1.190-192.168.1.254
+        - 2405:6581:8580:301:ace::/96
 
 connection:
   user: yuanying
@@ -59,6 +60,8 @@ connection:
 cni:
   flannel:
     backend: host-gw
+    image_repository: ghcr.io/yuanying/flannel
+    image_tag: 0.14.y10
 
 etcd:
   image_tag: v3.4.13-arm64
@@ -67,10 +70,12 @@ etcd:
     value: 'arm64'
 
 kubernetes:
-  # kubernetes_version: v1.17.5
   cluster_name: fraction
   control_plane_endpoint: '192.168.1.101:6443'
 
   proxy:
     config: {}
       # mode: 'ipvs'
+  networking:
+    service_subnet: "10.254.0.0/24,fd20:afc2:7c09::/108"
+    pod_subnet: "10.244.0.0/16,fde7:4ad6:425d::/48"

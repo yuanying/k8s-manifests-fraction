@@ -19,14 +19,14 @@ spec:
     command:
     - kube-controller-manager
     - --allocate-node-cidrs=true
-    - --cluster-cidr=10.244.0.0/16
+    - --cluster-cidr=10.244.0.0/16,fde7:4ad6:425d::/48
     - --cluster-signing-cert-file=/etc/kubernetes/pki/kubernetes/ca.crt
     - --cluster-signing-key-file=/etc/kubernetes/pki/kubernetes/ca.key
     - --controllers=*,bootstrapsigner,tokencleaner
     - --leader-elect=true
-    - --node-cidr-mask-size=24
     - --root-ca-file=/etc/kubernetes/pki/kubernetes/ca.crt
     - --service-account-private-key-file=/etc/kubernetes/pki/kubernetes/sa.key
+    - --service-cluster-ip-range=10.254.0.0/24,fd20:afc2:7c09::/108
     - --use-service-account-credentials=true
     - --v=2
     - --kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
