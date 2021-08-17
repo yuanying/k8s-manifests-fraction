@@ -1,0 +1,23 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "minecraft3"
+  name: minecraft3
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "1Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  local:
+    path: /export/minecraft-cheat3
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: ["oeilvert"]

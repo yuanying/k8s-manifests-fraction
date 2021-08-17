@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bds
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 2405:6581:8580:301:ace::9993
+  ipFamilies:
+  - IPv6
