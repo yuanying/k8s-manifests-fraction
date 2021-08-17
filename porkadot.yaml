@@ -30,8 +30,14 @@ nodes:
     taints:
       "tgtd.unstable.cloud/storage": ":NoSchedule"
   192.168.1.131:
+    labels:
+      "ddns": execute
   192.168.1.132:
+    labels:
+      "ddns": execute
   192.168.1.133:
+    labels:
+      "ddns": execute
   oeilvert:
     connection: { user: yuanying, hostname: 192.168.1.82 }
     labels:
