@@ -68,6 +68,11 @@ cni:
     backend: host-gw
     image_repository: ghcr.io/yuanying/flannel
     image_tag: 0.14.y10
+    resources:
+      requests:
+        cpu: "200m"
+      limits:
+        cpu: "200m"
 
 etcd:
   image_tag: v3.4.13-arm64

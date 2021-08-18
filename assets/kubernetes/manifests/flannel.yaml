@@ -190,11 +190,12 @@ spec:
         - --kube-subnet-mgr
         resources:
           requests:
-            cpu: "100m"
-            memory: "50Mi"
+            cpu: 200m
+            memory: 50Mi
           limits:
-            cpu: "100m"
-            memory: "50Mi"
+            cpu: 200m
+            memory: 50Mi
+
         securityContext:
           privileged: false
           capabilities:
