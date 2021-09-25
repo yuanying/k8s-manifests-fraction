@@ -53,7 +53,7 @@ data:
       proxy_read_timeout 3600s;
       proxy_send_timeout 3600s;
       location / {
-        proxy_pass http://192.168.1.83:9090;
+        proxy_pass http://192.168.1.82:9090;
       }
     }
 ---
