@@ -9,6 +9,9 @@ defaults {
     user_friendly_names yes
     find_multipaths no
 }
+blacklist {
+    devnode "^sd[a-z0-9]+"
+}
 EOF
 
 systemctl restart multipath-tools
