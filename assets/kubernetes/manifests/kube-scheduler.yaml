@@ -1,5 +1,5 @@
 ---
-apiVersion: policy/v1beta1
+apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: kube-scheduler
@@ -136,6 +136,11 @@ spec:
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 65534
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -163,17 +168,26 @@ spec:
         - --leader-elect=true
         - --v=2
         livenessProbe:
+          failureThreshold: 8
           httpGet:
             path: /healthz
-            port: 10251  # Note: Using default port. Update if --port option is set differently.
-          initialDelaySeconds: 15
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 15
+        startupProbe:
+          failureThreshold: 24
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
           timeoutSeconds: 15
       priorityClassName: system-cluster-critical
       nodeSelector:
         k8s.unstable.cloud/master: ""
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
       serviceAccountName: kube-scheduler
       tolerations:
       - key: CriticalAddonsOnly

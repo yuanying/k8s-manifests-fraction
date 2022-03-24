@@ -90,3 +90,5 @@ kubernetes:
   networking:
     service_subnet: "10.254.0.0/24,fd20:afc2:7c09::/108"
     pod_subnet: "10.244.0.0/16,fde7:4ad6:425d::/48"
+    additional_domains:
+    - fraction.cluster
