@@ -1,0 +1,131 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    name: sites
+  name: sites
+data:
+  000-default.conf: |
+    server {
+        listen       80;
+        server_name  localhost;
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+  www.fraction.jp.conf: |
+    server {
+        listen       80;
+        server_name  www.fraction.jp;
+        index index.html index.htm;
+        root   /var/sites/fraction;
+        location / {
+            try_files $uri $uri/ $uri.html $uri.xml $uri.jpg $uri.png =404;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+  duo.fraction.jp.conf: |
+    server {
+        listen       80;
+        server_name  duo.fraction.jp;
+        index index.html index.htm;
+        root   /var/sites/duo;
+        location / {
+            try_files $uri $uri/ $uri.html $uri.xml $uri.jpg $uri.png =404;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    nginx: sites
+  name: sites
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: sites
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: sites
+    spec:
+      containers:
+      - image: nginx:alpine
+        imagePullPolicy: Always
+        name: sites
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        ports:
+        - name: http
+          containerPort: 80
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d
+        - name: sitedata
+          mountPath: /var/sites
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: config
+        configMap:
+          name: sites
+      - name: sitedata
+        persistentVolumeClaim:
+          claimName: sites
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: 'true'
+  labels:
+    name: sites
+  name: sites
+spec:
+  rules:
+  - host: "www.fraction.jp"
+    http:
+      paths:
+      - backend:
+          service:
+            name: sites
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  - host: "duo.fraction.jp"
+    http:
+      paths:
+      - backend:
+          service:
+            name: sites
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+    - secretName: proxy-tls
+      hosts:
+        - "www.fraction.jp"
+        - "duo.fraction.jp"
