@@ -9,13 +9,16 @@ metadata:
     app.kubernetes.io/instance: kube-scheduler-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-scheduler
-    app.kubernetes.io/version: v1.21.3
+    app.kubernetes.io/version: v1.23.5
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-scheduler
 spec:
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
   containers:
   - name: kube-scheduler
-    image: k8s.gcr.io/kube-scheduler:v1.21.3
+    image: k8s.gcr.io/kube-scheduler:v1.23.5
     command:
     - kube-scheduler
     - --leader-elect=true
@@ -23,6 +26,26 @@ spec:
     - --kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
     - --authentication-kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
     - --authorization-kubeconfig=/etc/kubernetes/bootstrap/kubeconfig-bootstrap.yaml
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        host: 127.0.0.1
+        path: /healthz
+        port: 10259
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        host: 127.0.0.1
+        path: /healthz
+        port: 10259
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     volumeMounts:
     - name: kubernetes
       mountPath: /etc/kubernetes

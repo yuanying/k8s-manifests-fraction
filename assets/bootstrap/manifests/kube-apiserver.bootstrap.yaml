@@ -8,17 +8,20 @@ metadata:
     app.kubernetes.io/instance: kube-apiserver-porkadot-bootstrap
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.21.3
+    app.kubernetes.io/version: v1.23.5
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-apiserver
 spec:
   hostNetwork: true
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
   containers:
   - name: kube-apiserver
     resources:
       requests:
         cpu: 250m
-    image: k8s.gcr.io/kube-apiserver:v1.21.3
+    image: k8s.gcr.io/kube-apiserver:v1.23.5
     command:
     - kube-apiserver
     - --advertise-address=$(POD_IP)
@@ -52,6 +55,35 @@ spec:
     - --tls-cert-file=/etc/kubernetes/pki/kubernetes/apiserver.crt
     - --tls-private-key-file=/etc/kubernetes/pki/kubernetes/apiserver.key
     - --v=2
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        host: 127.0.0.1
+        path: /livez
+        port: 6443
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
+    readinessProbe:
+      failureThreshold: 3
+      httpGet:
+        host: 127.0.0.1
+        path: /readyz
+        port: 6443
+        scheme: HTTPS
+      periodSeconds: 1
+      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        host: 127.0.0.1
+        path: /livez
+        port: 6443
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     env:
     - name: POD_IP
       valueFrom:

@@ -7,11 +7,11 @@ case $(uname -m) in
 esac
 echo $architecture
 
-CNI_VERSION="v0.9.1"
+CNI_VERSION="v1.0.1"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
 
-RELEASE="v1.21.3"
+RELEASE="v1.23.5"
 
 mkdir -p /opt/bin
 
@@ -37,3 +37,12 @@ chmod +x ${ETCD_TMP}/etcdctl
 rm -f /opt/bin/etcdctl
 mv ${ETCD_TMP}/etcdctl /opt/bin/etcdctl-${ETCD_VER}
 ln -s /opt/bin/etcdctl-${ETCD_VER} /opt/bin/etcdctl
+
+CRICTL_VER="v1.23.0"
+CRICTL_URL=https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz
+CRICTL_TMP=$(mktemp -d)
+curl -L ${CRICTL_URL} -o ${CRICTL_TMP}/crictl.tar.gz
+tar zxvf ${CRICTL_TMP}/crictl.tar.gz -C ${CRICTL_TMP}/
+rm -f /opt/bin/crictl
+mv ${CRICTL_TMP}/crictl /opt/bin/crictl-${CRICTL_VER}
+ln -s /opt/bin/crictl-${CRICTL_VER} /opt/bin/crictl

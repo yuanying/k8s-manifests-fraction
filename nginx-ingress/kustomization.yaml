@@ -1,7 +1,8 @@
 commonLabels:
   region: fraction
   app: nginx-ingress
-bases:
+resources:
 - ../base/nginx-ingress
+- svc.yaml
 patches:
 - path: patch.yaml

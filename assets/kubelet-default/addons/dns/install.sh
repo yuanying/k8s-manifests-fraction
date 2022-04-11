@@ -9,7 +9,7 @@ Name=porka-dummy01
 Kind=dummy
 EOF
 
-cat << EOF >> /etc/systemd/network/20-porka-dummy.network
+cat << EOF > /etc/systemd/network/20-porka-dummy.network
 [Match]
 Name=porka-dummy01
 

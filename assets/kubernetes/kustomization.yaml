@@ -1,0 +1,7 @@
+# Modify this file if you want to kustomize generated manifests
+# This file will not be overridden by Porkadot.
+labels:
+- pairs:
+    'kubernetes.unstable.cloud/installed-by': 'porkadot'
+resources:
+- manifests

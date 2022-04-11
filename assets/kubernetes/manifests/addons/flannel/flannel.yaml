@@ -1,5 +1,5 @@
 ---
-apiVersion: policy/v1
+apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
 metadata:
   name: psp.flannel.unprivileged
@@ -167,8 +167,20 @@ spec:
         effect: NoSchedule
       serviceAccountName: flannel
       initContainers:
+      - name: install-cni-plugin
+       #image: flannelcni/flannel-cni-plugin:v1.0.1 for ppc64le and mips64le (dockerhub limitations may apply)
+        image: rancher/mirrored-flannelcni-flannel-cni-plugin:v1.0.1
+        command:
+        - cp
+        args:
+        - -f
+        - /flannel
+        - /opt/cni/bin/flannel
+        volumeMounts:
+        - name: cni-plugin
+          mountPath: /opt/cni/bin
       - name: install-cni
-        image: ghcr.io/yuanying/flannel:0.14.y10
+        image: rancher/mirrored-flannelcni-flannel:v0.17.0
         command:
         - cp
         args:
@@ -182,7 +194,7 @@ spec:
           mountPath: /etc/kube-flannel/
       containers:
       - name: kube-flannel
-        image: ghcr.io/yuanying/flannel:0.14.y10
+        image: rancher/mirrored-flannelcni-flannel:v0.17.0
         command:
         - /opt/bin/flanneld
         args:
@@ -216,10 +228,15 @@ spec:
           mountPath: /etc/kube-flannel/
         - name: ipam-data
           mountPath: /var/lib/cni/networks
+        - name: xtables-lock
+          mountPath: /run/xtables.lock
       volumes:
       - name: run
         hostPath:
           path: /run/flannel
+      - name: cni-plugin
+        hostPath:
+          path: /opt/cni/bin
       - name: cni
         hostPath:
           path: /etc/cni/net.d
@@ -229,3 +246,7 @@ spec:
       - name: flannel-cfg
         configMap:
           name: kube-flannel-cfg
+      - name: xtables-lock
+        hostPath:
+          path: /run/xtables.lock
+          type: FileOrCreate

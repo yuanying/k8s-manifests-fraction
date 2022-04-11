@@ -49,7 +49,7 @@ bootstrap:
   node:
     hostname: 192.168.1.133
 
-lb:
+addons:
   metallb:
     config: |
       address-pools:
@@ -59,20 +59,16 @@ lb:
         - 192.168.1.101/32
         - 192.168.1.190-192.168.1.254
         - 2405:6581:8580:301:ace::/96
-
-connection:
-  user: yuanying
-
-cni:
   flannel:
     backend: host-gw
-    image_repository: ghcr.io/yuanying/flannel
-    image_tag: 0.14.y10
     resources:
       requests:
         cpu: "200m"
       limits:
         cpu: "200m"
+
+connection:
+  user: yuanying
 
 etcd:
   image_tag: v3.4.13-arm64

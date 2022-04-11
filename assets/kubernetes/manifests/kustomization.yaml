@@ -1,0 +1,8 @@
+resources:
+- addons
+- kube-apiserver.yaml
+- kube-controller-manager.yaml
+- kube-proxy.yaml
+- kube-scheduler.yaml
+- kubelet.yaml
+- porkadot.yaml
