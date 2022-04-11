@@ -9,8 +9,8 @@ configMapGenerator:
   - DOMAIN=fraction.jp
 
 images:
-- name: grafana/grafana
-  newTag: 7.5.11
+# - name: grafana/grafana
+#   newTag: 7.5.11
 
 secretGenerator:
 - name: alertmanager-main
