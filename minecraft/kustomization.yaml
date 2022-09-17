@@ -3,6 +3,7 @@ commonLabels:
 resources:
 - ../base/minecraft
 - resources/pvc.yaml
+- resources/svc.yaml
 
 patchesStrategicMerge:
 - patches/svc.yaml
