@@ -1,0 +1,22 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: bedrock-connect
+  name: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bedrock-connect
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: bedrock-connect
+    spec:
+      containers:
+      - image: ghcr.io/yuanying/docker-bedrock-connect:0.0.1
+        name: docker-bedrock-connect
+        resources: {}

@@ -1,0 +1,6 @@
+namespace: bedrock-connect
+
+resources:
+- ns.yaml
+- svc.yaml
+- deploy.yaml

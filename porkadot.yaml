@@ -29,13 +29,16 @@ nodes:
       "storage.zfs":
     taints:
       "tgtd.unstable.cloud/storage": ":NoSchedule"
-  192.168.1.131:
+  sentir:
+    connection: { hostname: "192.168.1.133" }
     labels:
       "ddns": execute
-  192.168.1.132:
+  pablo:
+    connection: { hostname: "192.168.1.134" }
     labels:
       "ddns": execute
-  192.168.1.133:
+  duchamp:
+    connection: { hostname: "192.168.1.135" }
     labels:
       "ddns": execute
   oeilvert:
