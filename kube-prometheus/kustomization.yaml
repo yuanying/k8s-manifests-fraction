@@ -1,6 +1,10 @@
 resources:
 - ../base/kube-prometheus/
 
+labels:
+- pairs:
+    'app.unstable.cloud': 'kube-prometheus'
+
 configMapGenerator:
 - name: kp-config
   namespace: monitoring
@@ -8,7 +12,7 @@ configMapGenerator:
   literals:
   - DOMAIN=fraction.jp
 
-images:
+# images:
 # - name: grafana/grafana
 #   newTag: 7.5.11
 
