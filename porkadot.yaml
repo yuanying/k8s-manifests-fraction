@@ -20,19 +20,6 @@ nodes:
       "etcd.unstable.cloud/member": node113
     taints:
       "node-role.kubernetes.io/master": ":NoSchedule"
-  192.168.1.121:
-    labels:
-      "dedicated": nfs
-      "tgtd.unstable.cloud/storage": ""
-      "zfs.unstable.cloud/storage": ""
-      "role": backup
-      "storage.zfs":
-    taints:
-      "tgtd.unstable.cloud/storage": ":NoSchedule"
-  sentir:
-    connection: { hostname: "192.168.1.133" }
-    labels:
-      "ddns": execute
   pablo:
     connection: { hostname: "192.168.1.134" }
     labels:
@@ -41,6 +28,12 @@ nodes:
     connection: { hostname: "192.168.1.135" }
     labels:
       "ddns": execute
+  braque:
+    connection: { hostname: "192.168.1.131" }
+    labels:
+      "nfsd.unstable.cloud/storage": "yes"
+    taints:
+      "unstable.cloud/storage": ":NoSchedule"
   oeilvert:
     connection: { user: yuanying, hostname: 192.168.1.82 }
     labels:

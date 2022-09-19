@@ -12,9 +12,9 @@ ExecStart=/opt/bin/kubelet \
     --config=/var/lib/kubelet/config.yaml \
     --network-plugin=cni \
     --pod-infra-container-image=k8s.gcr.io/pause:3.4.1 \
-    --hostname-override=192.168.1.121 \
-    --node-labels=dedicated=nfs,tgtd.unstable.cloud/storage=,zfs.unstable.cloud/storage=,role=backup,storage.zfs \
-    --register-with-taints=tgtd.unstable.cloud/storage=:NoSchedule \
+    --hostname-override=braque \
+    --node-labels=nfsd.unstable.cloud/storage=yes \
+    --register-with-taints=unstable.cloud/storage=:NoSchedule \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always
 StartLimitInterval=0

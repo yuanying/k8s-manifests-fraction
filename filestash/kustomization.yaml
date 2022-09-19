@@ -9,7 +9,7 @@ configMapGenerator:
   namespace: filestash
   behavior: merge
   literals:
-  - NFS_SERVER=192.168.1.121
+  - NFS_SERVER=192.168.1.131
   - FILESTASH_URL=files.fraction.jp
 
 generatorOptions:

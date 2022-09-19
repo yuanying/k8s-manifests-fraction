@@ -18,5 +18,5 @@ configMapGenerator:
   namespace: hackmd
   behavior: merge
   literals:
-  - NFS_SERVER=192.168.1.121
+  - NFS_SERVER=192.168.1.131
   - HACKMD_URL=text.fraction.jp
