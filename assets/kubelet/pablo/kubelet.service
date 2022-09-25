@@ -10,8 +10,6 @@ ExecStart=/opt/bin/kubelet \
     --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
-    --network-plugin=cni \
-    --pod-infra-container-image=k8s.gcr.io/pause:3.4.1 \
     --hostname-override=pablo \
     --node-labels=ddns=execute \
     --register-with-taints= \

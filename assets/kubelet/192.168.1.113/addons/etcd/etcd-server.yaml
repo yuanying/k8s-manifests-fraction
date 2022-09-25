@@ -10,26 +10,29 @@ spec:
   hostNetwork: true
   containers:
   - name: etcd
-    image: gcr.io/etcd-development/etcd:v3.4.13-arm64
+    image: registry.k8s.io/etcd:3.5.4-0
     command:
     - /usr/local/bin/etcd
-    - --name=node113
     - --advertise-client-urls=https://192.168.1.113:2379
+    - --cert-file=/etc/etcd/pki/etcd.crt
+    - --client-cert-auth=true
+    - --data-dir=/var/lib/etcd
+    - --election-timeout=10000
+    - --experimental-initial-corrupt-check=true
+    - --experimental-watch-progress-notify-interval=5s
+    - --heartbeat-interval=1000
     - --initial-advertise-peer-urls=https://192.168.1.113:2380
     - --initial-cluster=node111=https://192.168.1.111:2380,node112=https://192.168.1.112:2380,node113=https://192.168.1.113:2380
-    - --listen-client-urls=https://192.168.1.113:2379,https://127.0.0.1:2379
-    - --listen-peer-urls=https://192.168.1.113:2380
-    - --client-cert-auth=true
-    - --cert-file=/etc/etcd/pki/etcd.crt
     - --key-file=/etc/etcd/pki/etcd.key
-    - --trusted-ca-file=/etc/etcd/pki/ca.crt
-    - --peer-client-cert-auth=true
+    - --listen-client-urls=https://0.0.0.0:2379
+    - --listen-peer-urls=https://0.0.0.0:2380
+    - --name=node113
     - --peer-cert-file=/etc/etcd/pki/etcd.crt
+    - --peer-client-cert-auth=true
     - --peer-key-file=/etc/etcd/pki/etcd.key
     - --peer-trusted-ca-file=/etc/etcd/pki/ca.crt
-    - --data-dir=/var/lib/etcd
-    - --heartbeat-interval=1000
-    - --election-timeout=10000
+    - --snapshot-count=10000
+    - --trusted-ca-file=/etc/etcd/pki/ca.crt
     env:
     - name: ETCD_UNSUPPORTED_ARCH
       value: arm64
@@ -45,6 +48,10 @@ spec:
     - mountPath: /etc/etcd/pki
       name: etcd-certs-host
       readOnly: true
+  priorityClassName: system-node-critical
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
   volumes:
   - hostPath:
       path: /var/lib/etcd

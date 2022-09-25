@@ -43,7 +43,7 @@ nodes:
 
 bootstrap:
   node:
-    hostname: 192.168.1.133
+    hostname: 192.168.1.134
 
 addons:
   metallb:
@@ -67,7 +67,7 @@ connection:
   user: yuanying
 
 etcd:
-  image_tag: v3.4.13-arm64
+  # image_tag: 3.5.4-arm64
   extra_env:
   - name: 'ETCD_UNSUPPORTED_ARCH'
     value: 'arm64'

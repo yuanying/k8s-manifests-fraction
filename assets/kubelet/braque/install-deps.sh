@@ -7,11 +7,11 @@ case $(uname -m) in
 esac
 echo $architecture
 
-CNI_VERSION="v1.0.1"
+CNI_VERSION="v1.1.1"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
 
-RELEASE="v1.23.5"
+RELEASE="v1.24.6"
 
 mkdir -p /opt/bin
 
@@ -27,7 +27,7 @@ chmod +x /opt/bin/kubelet-${RELEASE}
 rm -f /opt/bin/kubelet
 ln -s /opt/bin/kubelet-${RELEASE} /opt/bin/kubelet
 
-ETCD_VER="v3.4.13"
+ETCD_VER="3.5.4"
 ETCD_URL=https://storage.googleapis.com/etcd/${ETCD_VER}/etcd-${ETCD_VER}-linux-${architecture}.tar.gz
 ETCD_TMP=$(mktemp -d)
 
@@ -38,7 +38,7 @@ rm -f /opt/bin/etcdctl
 mv ${ETCD_TMP}/etcdctl /opt/bin/etcdctl-${ETCD_VER}
 ln -s /opt/bin/etcdctl-${ETCD_VER} /opt/bin/etcdctl
 
-CRICTL_VER="v1.23.0"
+CRICTL_VER="v1.24.2"
 CRICTL_URL=https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz
 CRICTL_TMP=$(mktemp -d)
 curl -L ${CRICTL_URL} -o ${CRICTL_TMP}/crictl.tar.gz

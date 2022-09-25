@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/instance: kube-proxy-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-proxy
-    app.kubernetes.io/version: v1.23.5
+    app.kubernetes.io/version: v1.24.6
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-proxy
 roleRef:
@@ -30,7 +30,7 @@ metadata:
     app.kubernetes.io/instance: kube-proxy-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-proxy
-    app.kubernetes.io/version: v1.23.5
+    app.kubernetes.io/version: v1.24.6
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-proxy
 ---
@@ -44,7 +44,7 @@ metadata:
     app.kubernetes.io/instance: kube-proxy-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-proxy
-    app.kubernetes.io/version: v1.23.5
+    app.kubernetes.io/version: v1.24.6
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-proxy
 data:
@@ -114,7 +114,7 @@ metadata:
     app.kubernetes.io/instance: kube-proxy-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-proxy
-    app.kubernetes.io/version: v1.23.5
+    app.kubernetes.io/version: v1.24.6
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-proxy
   name: kube-proxy
@@ -132,7 +132,7 @@ spec:
         app.kubernetes.io/instance: kube-proxy-porkadot
         app.kubernetes.io/managed-by: porkadot
         app.kubernetes.io/name: kube-proxy
-        app.kubernetes.io/version: v1.23.5
+        app.kubernetes.io/version: v1.24.6
         app.kubernetes.io/part-of: kubernetes
         k8s-app: kube-proxy
       annotations:
@@ -140,7 +140,7 @@ spec:
     spec:
       containers:
       - name: kube-proxy
-        image: k8s.gcr.io/kube-proxy:v1.23.5
+        image: registry.k8s.io/kube-proxy:v1.24.6
         imagePullPolicy: IfNotPresent
         command:
         - kube-proxy

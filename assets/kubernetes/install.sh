@@ -5,7 +5,7 @@ export LC_ALL=C
 ROOT=$(dirname "${BASH_SOURCE}")
 KUBECTL_OPTS=${KUBECTL_OPTS:-""}
 
-KUBECTL_OPTS="${KUBECTL_OPTS} --server-side --force-conflicts --prune"
+KUBECTL_OPTS="${KUBECTL_OPTS} --prune"
 KUBECTL_OPTS="${KUBECTL_OPTS} -l kubernetes.unstable.cloud/installed-by=porkadot"
 KUBECTL_OPTS="${KUBECTL_OPTS} --prune-whitelist=apiextensions.k8s.io/v1/customresourcedefinition"
 KUBECTL_OPTS="${KUBECTL_OPTS} --prune-whitelist=apps/v1/daemonset"

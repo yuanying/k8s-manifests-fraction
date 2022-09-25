@@ -26,6 +26,7 @@ imageMinimumGCAge: 0s
 kind: KubeletConfiguration
 nodeStatusReportFrequency: 0s
 nodeStatusUpdateFrequency: 0s
+resolvConf: /run/systemd/resolve/resolv.conf
 rotateCertificates: true
 runtimeRequestTimeout: 0s
 staticPodPath: /etc/kubernetes/manifests
