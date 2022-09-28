@@ -40,6 +40,8 @@ nodes:
       "role": worker
       "tgtd.unstable.cloud/storage": ""
       "zfs.unstable.cloud/storage": ""
+  chirico:
+    connection: { user: yuanying, hostname: 192.168.1.83 }
 
 bootstrap:
   node:
