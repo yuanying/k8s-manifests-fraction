@@ -2,7 +2,6 @@ commonLabels:
   region: fraction
 resources:
 - ../base/minecraft
-- resources/pvc.yaml
 - resources/svc.yaml
 
 patchesStrategicMerge:

@@ -12,7 +12,7 @@ data:
   #DEFAULT_PLAYER_PERMISSION_LEVEL: "member" # Options: visitor, member, operator
   #LEVEL_NAME: "my_minecraft_world"
   #LEVEL_SEED: "33480944"
-  LEVEL_SEED: "1041205822"
+  # LEVEL_SEED: "1041205822"
   SERVER_NAME: "oeilvert"
   #SERVER_PORT: "19132"
   #LEVEL_TYPE: "DEFAULT" # Options: FLAT, LEGACY, DEFAULT

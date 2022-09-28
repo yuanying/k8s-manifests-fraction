@@ -8,12 +8,9 @@ spec:
   - metadata:
       name: data
     spec:
-      storageClassName: manual
+      storageClassName: bronze
       accessModes:
         - ReadWriteOnce
       resources:
         requests:
-          storage: 1Gi
-      selector:
-        matchLabels:
-          use: "minecraft"
+          storage: 10Gi
