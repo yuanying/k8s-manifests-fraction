@@ -36,4 +36,5 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
+systemctl enable cluster-dns.service
 systemctl restart cluster-dns.service
