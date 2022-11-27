@@ -1,0 +1,5 @@
+{
+  "name": "oeilvert",
+  "labels": {"role":"worker","tgtd.unstable.cloud/storage":"","zfs.unstable.cloud/storage":""},
+  "annotations": {}
+}

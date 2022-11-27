@@ -1,0 +1,5 @@
+{
+  "name": "192.168.1.111",
+  "labels": {"k8s.unstable.cloud/master":null,"etcd.unstable.cloud/member":"node111"},
+  "annotations": {}
+}
