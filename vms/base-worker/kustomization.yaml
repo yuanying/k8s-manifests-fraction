@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- pairs:
+    'role': 'worker'
+
+resources:
+- ../base
+
+patchesStrategicMerge:
+# - |-
+#   apiVersion: v1
+#   kind: PersistentVolumeClaim
+#   metadata:
+#     name: data
+#   spec:
+#     resources:
+#       requests:
+#         storage: 50Gi
+- |-
+  apiVersion: kubevirt.io/v1
+  kind: VirtualMachine
+  metadata:
+    name: node
+  spec:
+    template:
+      spec:
+        domain:
+          resources:
+            requests:
+              memory: 6Gi

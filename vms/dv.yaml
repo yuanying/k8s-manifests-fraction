@@ -1,0 +1,19 @@
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: jammy-server
+  namespace: vms
+spec:
+  source:
+    http:
+      url: "https://www.fraction.jp/images/jammy-server-cloudimg-amd64.img"
+  pvc:
+    accessModes:
+    - ReadWriteOnce
+    volumeMode: Block
+    storageClassName: bronze
+    resources:
+      requests:
+        storage: 10Gi
+

@@ -1,0 +1,56 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudinit
+stringData:
+  networkdata: |-
+    version: 2
+    ethernets:
+      enp1s0:
+        dhcp4: true
+  userdata: |-
+    #cloud-config
+    # password: p@ssw0rd
+    ssh_authorized_keys:
+    - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCS7YoDiqntTeWKAKCyfa8yylcMc3W7PN7wYEC1mkHEzDMVQzKSObVGiiIDfYfd50o37pptQ0PjAo2LaXTJLQseFfrwEZW8Jifv/8qDu75ef/jau9q3po7ReQebhQTNtgT2SQ1PTa5s0yEcbP1M1Eyp+lqj+TnYuLuqq5AG9UBizPCbO+dnvW8gRvZ0TuX+f2+DzbYkRnL/SHvQ9hxkO4X7mJslw6DIWQJHM4xFZBN6y+7nntpYwxy1S7kfx38S7I9OLVWP+4a39R6x5QVULLM/n1a+aR4R3KhiA/XVoJheTyJY/fe5qVJuFYcwJIxo4Vj51tyiQ8T8PPePgqIYATI5
+    runcmd:
+      - [ sh, -c, "curl https://github.com/yuanying.keys >> /home/ubuntu/.ssh/authorized_keys" ]
+    apt:
+      sources:
+        docker:
+          keyid: "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+          keyserver: "keyserver.ubuntu.com"
+          source: "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
+    packages:
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+    - conntrack
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: staging
+spec:
+  selector:
+    vms: staging
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s
+spec:
+  selector:
+    k8s.unstable.cloud/master: ""
+  ports:
+  - name: https
+    port: 6443
+    targetPort: 6443
+

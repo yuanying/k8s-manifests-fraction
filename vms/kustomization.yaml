@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- pairs:
+    'app.unstable.cloud': 'vms'
+
+namespace: vms
+
+resources:
+- shared.yaml
+- bootstrap
+- cp01
+- cp02
+- cp03
+- w01
+- w02
+- w03

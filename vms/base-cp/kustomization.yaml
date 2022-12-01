@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- pairs:
+    'role': 'control-plane'
+
+resources:
+- ../base
+
+patchesStrategicMerge:
+- |-
+  apiVersion: kubevirt.io/v1
+  kind: VirtualMachine
+  metadata:
+    name: node
+  spec:
+    template:
+      metadata:
+        labels:
+          "k8s.unstable.cloud/master": ""
+      spec:
+        readinessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /healthz
+            port: 6443
+          periodSeconds: 1
+          timeoutSeconds: 15
