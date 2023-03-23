@@ -42,6 +42,12 @@ nodes:
       "zfs.unstable.cloud/storage": ""
   chirico:
     connection: { user: yuanying, hostname: 192.168.1.83 }
+  poissonnerie:
+    connection: { user: yuanying, hostname: 192.168.1.151 }
+    labels:
+      "unstable.cloud/nvidia-gpu": "yes"
+    taints:
+      "nvidia.com/gpu": ":NoSchedule"
 
 bootstrap:
   node:
