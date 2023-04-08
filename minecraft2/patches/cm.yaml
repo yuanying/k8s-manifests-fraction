@@ -13,7 +13,7 @@ data:
   DEFAULT_PLAYER_PERMISSION_LEVEL: "member" # Options: visitor, member, operator
   #LEVEL_NAME: "my_minecraft_world"
   #LEVEL_SEED: "33480944"
-  SERVER_NAME: "cheat"
+  SERVER_NAME: "oeilvert2"
   #SERVER_PORT: "19132"
   #LEVEL_TYPE: "DEFAULT" # Options: FLAT, LEGACY, DEFAULT
   ALLOW_CHEATS: "false" # Options: true, false

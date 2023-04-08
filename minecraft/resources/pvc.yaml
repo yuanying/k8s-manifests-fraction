@@ -1,3 +1,20 @@
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   labels:
+#     use: "minecraft"
+#   name: minecraft
+# spec:
+#   storageClassName: manual
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: "1Gi"
+#   selector:
+#     matchLabels:
+#       use: "minecraft"
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -13,11 +30,11 @@ spec:
   - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   local:
-    path: /export/minecraft
+    path: /var/lib/longhorn/minecraft
   nodeAffinity:
     required:
       nodeSelectorTerms:
       - matchExpressions:
         - key: kubernetes.io/hostname
           operator: In
-          values: ["oeilvert"]
+          values: ["chirico"]
