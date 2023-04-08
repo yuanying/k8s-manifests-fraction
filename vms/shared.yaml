@@ -53,4 +53,164 @@ spec:
   - name: https
     port: 6443
     targetPort: 6443
-
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-chirico-1
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-1
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [chirico]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-chirico-2
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-2
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [chirico]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-chirico-3
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-3
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [chirico]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-oeilvert-1
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-1
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [oeilvert]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-oeilvert-2
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-2
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [oeilvert]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-duchamp-1
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-1
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [duchamp]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    use: "jammy"
+  name: jammy-pablo-1
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "10Gi"
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: /var/lib/longhorn/vms/data-1
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [pablo]

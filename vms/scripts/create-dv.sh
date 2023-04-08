@@ -1,8 +1,17 @@
+#!/bin/bash
+
+set -eu
+
+servers="chirico oeilvert duchamp pablo"
+
+for s in ${servers}; do
+    cat <<EOF
 ---
 apiVersion: cdi.kubevirt.io/v1beta1
 kind: DataVolume
 metadata:
-  name: jammy-server-chirico
+  name: jammy-server-${s}
+  namespace: vms
 spec:
   source:
     http:
@@ -16,14 +25,14 @@ spec:
         storage: 10Gi
     selector:
       matchLabels:
-        use: "jammy-server-chirico"
+        use: "jammy-server-${s}"
 ---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   labels:
-    use: "jammy-server-chirico"
-  name: jammy-server-chirico
+    use: "jammy-server-${s}"
+  name: jammy-server-${s}
 spec:
   storageClassName: manual
   capacity:
@@ -39,4 +48,6 @@ spec:
       - matchExpressions:
         - key: kubernetes.io/hostname
           operator: In
-          values: [chirico]
+          values: [${s}]
+EOF
+done

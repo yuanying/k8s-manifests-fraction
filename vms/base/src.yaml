@@ -4,29 +4,15 @@ kind: PersistentVolumeClaim
 metadata:
   name: jammy
 spec:
-  storageClassName: "bronze"
-  dataSource:
-    name: jammy-server
-    kind: PersistentVolumeClaim
   accessModes:
   - ReadWriteOnce
-  volumeMode: Block
+  storageClassName: manual
   resources:
     requests:
       storage: 10Gi
-# ---
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: data
-# spec:
-#   storageClassName: "bronze"
-#   accessModes:
-#   - ReadWriteOnce
-#   volumeMode: Block
-#   resources:
-#     requests:
-#       storage: 5Gi
+  selector:
+    matchLabels:
+      use: "jammy"
 ---
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
