@@ -75,7 +75,7 @@ spec:
       periodSeconds: 1
       timeoutSeconds: 15
     startupProbe:
-      failureThreshold: 24
+      failureThreshold: 48
       httpGet:
         host: 127.0.0.1
         path: /livez
