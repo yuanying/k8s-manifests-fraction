@@ -48,6 +48,16 @@ nodes:
       "unstable.cloud/nvidia-gpu": "yes"
     taints:
       "nvidia.com/gpu": ":NoSchedule"
+  uribo:
+    connection: { user: yuanying, hostname: 192.168.1.152 }
+    labels:
+      "unstable.cloud/gpu.deploy.device-plugin": "yes"
+    taints:
+      "nvidia.com/gpu": ":NoSchedule"
+    config:
+      failSwapOn: false
+      featureGates:
+        NodeSwap: true
 
 bootstrap:
   node:
@@ -56,13 +66,23 @@ bootstrap:
 addons:
   metallb:
     config: |
-      address-pools:
-      - name: default
-        protocol: layer2
+      ---
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: first-pool
+        namespace: metallb-system
+      spec:
         addresses:
         - 192.168.1.101/32
         - 192.168.1.190-192.168.1.254
         - 2405:6581:8580:301:ace::/96
+      ---
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: system
+        namespace: metallb-system
   flannel:
     backend: host-gw
     resources:

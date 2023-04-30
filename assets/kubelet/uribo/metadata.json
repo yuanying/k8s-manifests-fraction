@@ -1,0 +1,5 @@
+{
+  "name": "uribo",
+  "labels": {"nvidia.com/gpu.deploy.device-plugin":"true"},
+  "annotations": {}
+}

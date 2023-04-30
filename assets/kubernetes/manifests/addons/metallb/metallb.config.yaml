@@ -1,19 +1,18 @@
 ---
-apiVersion: v1
-kind: ConfigMap
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
-  labels:
-    app: metallb
-  name: config
+  name: first-pool
   namespace: metallb-system
-data:
-  config: |
-    address-pools:
-    - name: default
-      protocol: layer2
-      addresses:
-      - 192.168.1.101/32
-      - 192.168.1.190-192.168.1.254
-      - 2405:6581:8580:301:ace::/96
-
+spec:
+  addresses:
+  - 192.168.1.101/32
+  - 192.168.1.190-192.168.1.254
+  - 2405:6581:8580:301:ace::/96
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: system
+  namespace: metallb-system
 

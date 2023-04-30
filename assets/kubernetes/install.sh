@@ -21,4 +21,6 @@ KUBECTL_OPTS="${KUBECTL_OPTS} --prune-whitelist=rbac.authorization.k8s.io/v1/clu
 KUBECTL_OPTS="${KUBECTL_OPTS} --prune-whitelist=rbac.authorization.k8s.io/v1/role"
 KUBECTL_OPTS="${KUBECTL_OPTS} --prune-whitelist=rbac.authorization.k8s.io/v1/rolebinding"
 
+/opt/bin/kubectl apply --force-conflicts --server-side -R -f ${ROOT}/manifests/crds
+/opt/bin/kubectl wait --for condition=established --timeout=60s crd --all
 /opt/bin/kubectl apply ${KUBECTL_OPTS} -k ${ROOT}

@@ -7,7 +7,7 @@ case $(uname -m) in
 esac
 echo $architecture
 
-CNI_VERSION="v1.1.1"
+CNI_VERSION="v1.2.0"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
 
