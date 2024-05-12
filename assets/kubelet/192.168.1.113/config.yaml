@@ -35,6 +35,7 @@ streamingConnectionIdleTimeout: 0s
 syncFrequency: 0s
 volumeStatsAggPeriod: 0s
 serverTLSBootstrap: true
-featureGates:
-  CSIMigration: false
+registerWithTaints:
+- key: node-role.kubernetes.io/master
+  effect: NoSchedule
 

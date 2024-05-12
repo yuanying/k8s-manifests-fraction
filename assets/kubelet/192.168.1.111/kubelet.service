@@ -5,16 +5,14 @@ Documentation=http://kubernetes.io/docs/
 [Service]
 EnvironmentFile=-/etc/default/kubelet
 ExecStart=/opt/bin/kubelet \
-    --container-runtime=remote \
     --container-runtime-endpoint=/run/containerd/containerd.sock \
     --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
     --hostname-override=192.168.1.111 \
-    --node-labels=k8s.unstable.cloud/master,etcd.unstable.cloud/member=node111 \
-    --register-with-taints=node-role.kubernetes.io/master=:NoSchedule \
-    --resolv-conf=/run/systemd/resolve/resolv.conf
+    --node-labels=k8s.unstable.cloud/master,etcd.unstable.cloud/member=node111
 Restart=always
+
 StartLimitInterval=0
 RestartSec=10
 
