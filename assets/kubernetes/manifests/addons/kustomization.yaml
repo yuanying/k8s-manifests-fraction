@@ -2,6 +2,6 @@ resources:
 - flannel
 - coredns
 - metallb
-- kubelet-rubber-stamp
+- kubelet-serving-cert-approver
 - storage-version-migrator
 

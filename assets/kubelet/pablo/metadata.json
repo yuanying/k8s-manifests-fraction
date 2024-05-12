@@ -1,5 +1,5 @@
 {
   "name": "pablo",
-  "labels": {"ddns":"execute"},
+  "labels": {"ddns":"execute","metallb":"speaker"},
   "annotations": {}
 }

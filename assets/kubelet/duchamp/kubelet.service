@@ -11,7 +11,7 @@ ExecStart=/opt/bin/kubelet \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
     --hostname-override=duchamp \
-    --node-labels=ddns=execute \
+    --node-labels=ddns=execute,metallb=speaker \
     --register-with-taints= \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always

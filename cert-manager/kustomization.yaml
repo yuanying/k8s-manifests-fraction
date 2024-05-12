@@ -1,7 +1,0 @@
-commonLabels:
-  region: fraction
-  app: cert-manager
-bases:
-- ../base/cert-manager
-resources:
-- secrets/account.yaml

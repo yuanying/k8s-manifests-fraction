@@ -1,5 +1,0 @@
-commonLabels:
-  region: fraction
-  app: cert-manager
-resources:
-- issuer.yaml

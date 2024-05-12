@@ -1,5 +1,0 @@
-commonLabels:
-  region: fraction
-resources:
-- ../base/zfs-localpv
-- sc.yaml

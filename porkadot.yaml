@@ -5,35 +5,42 @@ nodes:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node111
     taints:
-      "node-role.kubernetes.io/master": ":NoSchedule"
+    - key: "node-role.kubernetes.io/master"
+      effect: "NoSchedule"
   192.168.1.112:
     connection: { user: ubuntu }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node112
     taints:
-      "node-role.kubernetes.io/master": ":NoSchedule"
+    - key: "node-role.kubernetes.io/master"
+      effect: "NoSchedule"
   192.168.1.113:
     connection: { user: ubuntu }
     labels:
       "k8s.unstable.cloud/master":
       "etcd.unstable.cloud/member": node113
     taints:
-      "node-role.kubernetes.io/master": ":NoSchedule"
+    - key: "node-role.kubernetes.io/master"
+      effect: "NoSchedule"
   pablo:
     connection: { hostname: "192.168.1.134" }
     labels:
       "ddns": execute
+      "metallb": speaker
   duchamp:
     connection: { hostname: "192.168.1.135" }
     labels:
       "ddns": execute
+      "metallb": speaker
   braque:
     connection: { hostname: "192.168.1.131" }
     labels:
       "nfsd.unstable.cloud/storage": "yes"
+      "metallb": speaker
     taints:
-      "unstable.cloud/storage": ":NoSchedule"
+    - key: "unstable.cloud/storage"
+      effect: "NoSchedule"
   oeilvert:
     connection: { user: yuanying, hostname: 192.168.1.82 }
     labels:
@@ -42,18 +49,22 @@ nodes:
       "zfs.unstable.cloud/storage": ""
   chirico:
     connection: { user: yuanying, hostname: 192.168.1.83 }
+    labels:
+      "metallb": speaker
   poissonnerie:
     connection: { user: yuanying, hostname: 192.168.1.151 }
     labels:
       "unstable.cloud/nvidia-gpu": "yes"
     taints:
-      "nvidia.com/gpu": ":NoSchedule"
+    - key: "nvidia.com/gpu"
+      effect: "NoSchedule"
   uribo:
     connection: { user: yuanying, hostname: 192.168.1.152 }
     labels:
       "unstable.cloud/gpu.deploy.device-plugin": "yes"
     taints:
-      "nvidia.com/gpu": ":NoSchedule"
+    - key: "nvidia.com/gpu"
+      effect: "NoSchedule"
     config:
       failSwapOn: false
       featureGates:

@@ -5,3 +5,16 @@ labels:
     'kubernetes.unstable.cloud/installed-by': 'porkadot'
 resources:
 - manifests
+# 
+# patches:
+# - patch: |-
+#     apiVersion: apps/v1
+#     kind: DaemonSet
+#     metadata:
+#       name: speaker
+#       namespace: metallb-system
+#     spec:
+#       template:
+#         spec:
+#           nodeSelector:
+#             metallb: speaker

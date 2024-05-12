@@ -11,7 +11,7 @@ ExecStart=/opt/bin/kubelet \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
     --hostname-override=braque \
-    --node-labels=nfsd.unstable.cloud/storage=yes \
+    --node-labels=nfsd.unstable.cloud/storage=yes,metallb=speaker \
     --register-with-taints=unstable.cloud/storage=:NoSchedule \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always

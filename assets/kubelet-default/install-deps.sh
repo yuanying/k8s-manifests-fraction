@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 architecture="arm64"
 case $(uname -m) in
     x86_64) architecture="amd64" ;;

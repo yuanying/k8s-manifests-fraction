@@ -1,5 +1,5 @@
 {
   "name": "braque",
-  "labels": {"nfsd.unstable.cloud/storage":"yes"},
+  "labels": {"nfsd.unstable.cloud/storage":"yes","metallb":"speaker"},
   "annotations": {}
 }

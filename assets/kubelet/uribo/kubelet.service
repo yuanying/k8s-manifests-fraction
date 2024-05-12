@@ -11,7 +11,7 @@ ExecStart=/opt/bin/kubelet \
     --kubeconfig=/etc/kubernetes/kubelet.conf \
     --config=/var/lib/kubelet/config.yaml \
     --hostname-override=uribo \
-    --node-labels=nvidia.com/gpu.deploy.device-plugin=true \
+    --node-labels=unstable.cloud/gpu.deploy.device-plugin=yes \
     --register-with-taints=nvidia.com/gpu=:NoSchedule \
     --resolv-conf=/run/systemd/resolve/resolv.conf
 Restart=always
