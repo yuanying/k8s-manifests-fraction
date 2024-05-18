@@ -60,14 +60,6 @@ rules:
 - apiGroups:
   - metallb.io
   resources:
-  - addresspools
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - metallb.io
-  resources:
   - bfdprofiles
   verbs:
   - get
@@ -129,9 +121,9 @@ rules:
   - list
   - watch
 - apiGroups:
-  - metallb.io
+  - ""
   resources:
-  - addresspools
+  - configmaps
   verbs:
   - get
   - list
@@ -204,6 +196,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
   - services/status
   verbs:
   - update
@@ -248,7 +246,6 @@ rules:
 - apiGroups:
   - apiextensions.k8s.io
   resourceNames:
-  - addresspools.metallb.io
   - bfdprofiles.metallb.io
   - bgpadvertisements.metallb.io
   - bgppeers.metallb.io
@@ -280,6 +277,13 @@ metadata:
     app: metallb
   name: metallb-system:speaker
 rules:
+- apiGroups:
+  - metallb.io
+  resources:
+  - servicel2statuses
+  - servicel2statuses/status
+  verbs:
+  - '*'
 - apiGroups:
   - ""
   resources:
@@ -389,13 +393,13 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: webhook-server-cert
+  name: metallb-webhook-cert
   namespace: metallb-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: webhook-service
+  name: metallb-webhook-service
   namespace: metallb-system
 spec:
   ports:
@@ -431,12 +435,13 @@ spec:
       - args:
         - --port=7472
         - --log-level=info
+        - --tls-min-version=VersionTLS12
         env:
         - name: METALLB_ML_SECRET_NAME
           value: memberlist
         - name: METALLB_DEPLOYMENT
           value: controller
-        image: quay.io/metallb/controller:v0.13.9
+        image: quay.io/metallb/controller:v0.14.5
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -484,7 +489,7 @@ spec:
       - name: cert
         secret:
           defaultMode: 420
-          secretName: webhook-server-cert
+          secretName: metallb-webhook-cert
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -529,7 +534,7 @@ spec:
           value: app=metallb,component=speaker
         - name: METALLB_ML_SECRET_KEY_PATH
           value: /etc/ml_secret_key
-        image: quay.io/metallb/speaker:v0.13.9
+        image: quay.io/metallb/speaker:v0.14.5
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -569,6 +574,9 @@ spec:
         - mountPath: /etc/ml_secret_key
           name: memberlist
           readOnly: true
+        - mountPath: /etc/metallb
+          name: metallb-excludel2
+          readOnly: true
       hostNetwork: true
       nodeSelector:
         kubernetes.io/os: linux
@@ -586,6 +594,10 @@ spec:
         secret:
           defaultMode: 420
           secretName: memberlist
+      - configMap:
+          defaultMode: 256
+          name: metallb-excludel2
+        name: metallb-excludel2
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -597,7 +609,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta2-bgppeer
   failurePolicy: Fail
@@ -617,27 +629,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
-      namespace: metallb-system
-      path: /validate-metallb-io-v1beta1-addresspool
-  failurePolicy: Fail
-  name: addresspoolvalidationwebhook.metallb.io
-  rules:
-  - apiGroups:
-    - metallb.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - addresspools
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta1-bfdprofile
   failurePolicy: Fail
@@ -657,7 +649,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta1-bgpadvertisement
   failurePolicy: Fail
@@ -677,7 +669,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta1-community
   failurePolicy: Fail
@@ -697,7 +689,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta1-ipaddresspool
   failurePolicy: Fail
@@ -717,7 +709,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: metallb-webhook-service
       namespace: metallb-system
       path: /validate-metallb-io-v1beta1-l2advertisement
   failurePolicy: Fail

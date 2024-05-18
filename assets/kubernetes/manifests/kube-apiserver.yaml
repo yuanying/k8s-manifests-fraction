@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: kube-apiserver-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.25.15
+    app.kubernetes.io/version: v1.26.15
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-apiserver
 spec:
@@ -25,7 +25,7 @@ spec:
         app.kubernetes.io/instance: kube-apiserver-porkadot
         app.kubernetes.io/managed-by: porkadot
         app.kubernetes.io/name: kube-apiserver
-        app.kubernetes.io/version: v1.25.15
+        app.kubernetes.io/version: v1.26.15
         app.kubernetes.io/part-of: kubernetes
         k8s-app: kube-apiserver
       annotations:
@@ -39,7 +39,7 @@ spec:
         resources:
           requests:
             cpu: 250m
-        image: registry.k8s.io/kube-apiserver:v1.25.15
+        image: registry.k8s.io/kube-apiserver:v1.26.15
         command:
         - kube-apiserver
         - --advertise-address=$(POD_IP)
