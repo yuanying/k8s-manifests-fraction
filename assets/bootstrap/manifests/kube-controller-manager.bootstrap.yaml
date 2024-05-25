@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: kube-controller-manager-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-controller-manager
-    app.kubernetes.io/version: v1.26.15
+    app.kubernetes.io/version: v1.27.14
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-controller-manager
 spec:
@@ -18,7 +18,7 @@ spec:
       type: RuntimeDefault
   containers:
   - name: kube-controller-manager
-    image: registry.k8s.io/kube-controller-manager:v1.26.15
+    image: registry.k8s.io/kube-controller-manager:v1.27.14
     command:
     - kube-controller-manager
     - --allocate-node-cidrs=true

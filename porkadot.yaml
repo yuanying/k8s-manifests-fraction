@@ -72,7 +72,9 @@ nodes:
 
 bootstrap:
   node:
-    hostname: 192.168.1.134
+    hostname: pablo
+    connection:
+      hostname: 192.168.1.134
 
 addons:
   metallb:
