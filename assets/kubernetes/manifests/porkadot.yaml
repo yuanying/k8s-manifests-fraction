@@ -5,6 +5,8 @@ metadata:
   annotations:
   labels:
     provider: porkadot
+    app.kubernetes.io/component: kube-apiserver
+    app.kubernetes.io/managed-by: porkadot
   name: porkadot-kubernetes
   namespace: kube-system
 spec:
@@ -26,6 +28,8 @@ metadata:
   annotations:
   labels:
     provider: porkadot
+    app.kubernetes.io/component: kube-apiserver
+    app.kubernetes.io/managed-by: porkadot
   name: porkadot-kubernetes-latest
   namespace: kube-system
 spec:
@@ -34,7 +38,7 @@ spec:
     app.kubernetes.io/instance: kube-apiserver-porkadot
     app.kubernetes.io/managed-by: porkadot
     app.kubernetes.io/name: kube-apiserver
-    app.kubernetes.io/version: v1.27.14
+    app.kubernetes.io/version: v1.28.10
     app.kubernetes.io/part-of: kubernetes
     k8s-app: kube-apiserver
   ports:

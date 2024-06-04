@@ -13,17 +13,17 @@ CNI_VERSION="v1.4.1"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
 
-RELEASE="v1.27.14"
+RELEASE="v1.28.10"
 
 mkdir -p /opt/bin
 
-curl -L https://storage.googleapis.com/kubernetes-release/release/${RELEASE}/bin/linux/${architecture}/kubectl \
+curl -L https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl \
   -o /opt/bin/kubectl-${RELEASE}
 chmod +x /opt/bin/kubectl-${RELEASE}
 rm -f /opt/bin/kubectl
 ln -s /opt/bin/kubectl-${RELEASE} /opt/bin/kubectl
 
-curl -L https://storage.googleapis.com/kubernetes-release/release/${RELEASE}/bin/linux/${architecture}/kubelet \
+curl -L https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubelet \
   -o /opt/bin/kubelet-${RELEASE}
 chmod +x /opt/bin/kubelet-${RELEASE}
 rm -f /opt/bin/kubelet
@@ -40,7 +40,7 @@ rm -f /opt/bin/etcdctl
 mv ${ETCD_TMP}/etcdctl /opt/bin/etcdctl-${ETCD_VER}
 ln -s /opt/bin/etcdctl-${ETCD_VER} /opt/bin/etcdctl
 
-CRICTL_VER="v1.27.1"
+CRICTL_VER="v1.28.0"
 CRICTL_URL=https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz
 CRICTL_TMP=$(mktemp -d)
 curl -L ${CRICTL_URL} -o ${CRICTL_TMP}/crictl.tar.gz
