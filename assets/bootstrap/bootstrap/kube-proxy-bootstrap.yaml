@@ -23,13 +23,13 @@ iptables:
   minSyncPeriod: 0s
   syncPeriod: 30s
 ipvs:
-  excludeCIDRs: 
+  excludeCIDRs:
   minSyncPeriod: 0s
   scheduler: ''
   syncPeriod: 30s
 metricsBindAddress: 0.0.0.0:10249
 mode: iptables
-nodePortAddresses: 
+nodePortAddresses:
 oomScoreAdj: -999
 portRange: ''
 udpIdleTimeout: 250ms

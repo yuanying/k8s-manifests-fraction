@@ -24,9 +24,9 @@ spec:
     - --initial-advertise-peer-urls=https://192.168.1.111:2380
     - --initial-cluster=node111=https://192.168.1.111:2380,node112=https://192.168.1.112:2380,node113=https://192.168.1.113:2380
     - --key-file=/etc/etcd/pki/etcd.key
-    - --listen-client-urls=https://0.0.0.0:2379
-    - --listen-peer-urls=https://0.0.0.0:2380
-    - --listen-metrics-urls=http://0.0.0.0:2381
+    - --listen-client-urls=https://192.168.1.111:2379,https://127.0.0.1:2379
+    - --listen-peer-urls=https://192.168.1.111:2380
+    - --listen-metrics-urls=http://192.168.1.111:2381,http://127.0.0.1:2381
     - --name=node111
     - --peer-cert-file=/etc/etcd/pki/etcd.crt
     - --peer-client-cert-auth=true

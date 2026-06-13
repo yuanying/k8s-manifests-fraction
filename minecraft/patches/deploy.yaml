@@ -4,6 +4,12 @@ kind: StatefulSet
 metadata:
   name: bds
 spec:
+  template:
+    spec:
+      tolerations:
+      - effect: NoSchedule
+        key: vm-exclusive
+        operator: Exists
   volumeClaimTemplates:
   - metadata:
       name: data

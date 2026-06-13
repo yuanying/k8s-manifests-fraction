@@ -13,7 +13,7 @@ CNI_VERSION="v1.4.1"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
 
-RELEASE="v1.28.10"
+RELEASE="v1.29.8"
 
 mkdir -p /opt/bin
 

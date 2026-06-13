@@ -1,5 +1,0 @@
-{
-  "name": "poissonnerie",
-  "labels": {"unstable.cloud/nvidia-gpu":"yes"},
-  "annotations": {}
-}

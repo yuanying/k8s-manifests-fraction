@@ -1,5 +1,0 @@
-{
-  "name": "uribo",
-  "labels": {"unstable.cloud/gpu.deploy.device-plugin":"yes"},
-  "annotations": {}
-}

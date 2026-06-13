@@ -8,7 +8,7 @@ data:
   # Remove # from in front of line if changing from default values.
   EULA: "TRUE" # Must accept EULA to use this minecraft server
   #GAMEMODE: "survival" # Options: survival, creative, adventure
-  DIFFICULTY: "normal" # Options: peaceful, easy, normal, hard
+  DIFFICULTY: "easy" # Options: peaceful, easy, normal, hard
   # DEFAULT_PLAYER_PERMISSION_LEVEL: "operator" # Options: visitor, member, operator
   DEFAULT_PLAYER_PERMISSION_LEVEL: "member" # Options: visitor, member, operator
   #LEVEL_NAME: "my_minecraft_world"
@@ -29,4 +29,4 @@ data:
   #VIEW_DISTANCE: "10"
   #TICK_DISTANCE: "4"
   #MAX_THREADS: "8"
-  OPS: "2535406639803577"
+  # OPS: "2535406639803577"
