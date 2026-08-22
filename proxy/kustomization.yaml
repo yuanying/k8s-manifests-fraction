@@ -9,8 +9,6 @@ resources:
 generatorOptions:
   disableNameSuffixHash: true
 
-secretGenerator:
-- name: basic-auth
-  namespace: proxy
-  files:
-  - secrets/auth
+# BASIC 認証の Secret（basic-auth）はもう作らない。ingress-nginx が読んでいたもので、
+# gated に移ってからは NetworkRole が認可を担う。Ingress 側の auth-* アノテーションは
+# 記録として残しているが、Secret を指す先はもう無い。
