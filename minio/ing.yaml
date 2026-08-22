@@ -5,14 +5,12 @@ metadata:
   name: minio
   labels:
     app: minio
-  annotations:
-    kubernetes.io/tls-acme: "true"
 spec:
-  ingressClassName: nginx
+  ingressClassName: gated
   tls:
   - hosts:
     - minio.fraction.jp
-    secretName: minio-tls
+    secretName: minio-fraction-jp-gated-tls
   rules:
   - host: minio.fraction.jp
     http:
@@ -31,14 +29,12 @@ metadata:
   name: minio-console
   labels:
     app: minio
-  annotations:
-    kubernetes.io/tls-acme: "true"
 spec:
-  ingressClassName: nginx
+  ingressClassName: gated
   tls:
   - hosts:
     - minio-console.fraction.jp
-    secretName: minio-console-tls
+    secretName: minio-console-fraction-jp-gated-tls
   rules:
   - host: minio-console.fraction.jp
     http:
