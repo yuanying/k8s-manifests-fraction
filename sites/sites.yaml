@@ -93,6 +93,7 @@ spec:
         persistentVolumeClaim:
           claimName: sites
 ---
+# この Ingress は fleet-infra の apps/sites/prod/ingress.yaml が正である。
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

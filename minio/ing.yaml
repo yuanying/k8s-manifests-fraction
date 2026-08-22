@@ -1,0 +1,48 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  ingressClassName: gated
+  tls:
+  - hosts:
+    - minio.fraction.jp
+    secretName: minio-fraction-jp-gated-tls
+  rules:
+  - host: minio.fraction.jp
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-console
+  labels:
+    app: minio
+spec:
+  ingressClassName: gated
+  tls:
+  - hosts:
+    - minio-console.fraction.jp
+    secretName: minio-console-fraction-jp-gated-tls
+  rules:
+  - host: minio-console.fraction.jp
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-console
+            port:
+              name: http
