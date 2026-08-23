@@ -1,3 +1,0 @@
-resources:
-- coredns.yaml
-- dns-horizontal-autoscaler.yaml

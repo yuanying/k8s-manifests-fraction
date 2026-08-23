@@ -1,7 +1,0 @@
-resources:
-- flannel
-- coredns
-- metallb
-- kubelet-serving-cert-approver
-- storage-version-migrator
-
