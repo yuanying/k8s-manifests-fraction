@@ -6,7 +6,7 @@
 | | 旧機 | 新機 |
 |---|---|---|
 | 機体 | Raspberry Pi 4 Model B（4GB）、SD | Raspberry Pi 5（8GB）、NVMe SSD |
-| OS | Ubuntu 20.04.6 | Ubuntu 24.04.5（第一候補。E2 の結果で確定） |
+| OS | Ubuntu 20.04.6 | Ubuntu 24.04.5（E2 の結果で確定） |
 | containerd | 1.6.20（Docker の containerd.io） | 2.2 系（Ubuntu の containerd） |
 | cgroup | v1 | v2 |
 | K8s | v1.29.8 | v1.29.8（このタスクでは上げない） |
@@ -14,11 +14,11 @@
 方式の選定と根拠は porkadot-dev の `docs/cp-replacement/` にある。
 
 - `method-comparison.md`: A1 / A2 / B1 / B2 の机上比較
-- `verification-results.md`: dev クラスタ（E1）と本番の読み取り（E3）での検証結果。この手順書で「V7」などと書くのは、この文書の項目である
-- `rehearsal/`: 交換中の影響を測るプローブ
+- `verification-results.md`: dev クラスタ（E1）、Raspberry Pi 5 の実機（E2）、本番の読み取り（E3）での検証結果。この手順書で「V7」などと書くのは、この文書の項目である
+- `rehearsal/`: 交換中の影響を測るプローブと、IP の切り替えに使ったスクリプト（`netswitch.sh`）
 
-> **E2 の結果待ち**: Raspberry Pi 5 での確認（V1〜V3、A2 の arm64 版）はまだ終わっていない。
-> E2 の結果で変わりうる箇所には「**E2 待ち**」と書いた。E2 の結果が出たら、その箇所を更新してから本番に入る。
+E2 では、Pi 5（24.04.5、containerd 2.2.1、cgroup v2）を仮の IP で準備し、dev の master03 を A2 で入れ替えた。
+IP の切り替えから etcd 3/3 healthy まで 14 秒で、その間の VIP、LoadBalancer、Pod からの API と DNS の失敗は 0 回だった。
 
 ## 0. 役割と約束ごと
 
@@ -78,6 +78,22 @@ unset ADMIN_TOKEN
 ssh ubuntu@<ノード> 'sudo bash -c ". /etc/etcd/etcd.env && /opt/bin/etcdctl member list -w table"'
 ```
 
+### 1.4 新機の前提
+
+- **OS は Ubuntu 24.04.5 に確定した**（E2。選定の理由は verification-results.md の「方式と OS の判断」と k8s-env の `raspi/os-selection.md`）。
+- **SSH ユーザーは `ubuntu` で、パスワードなしで sudo できること。** 本番の `porkadot.yaml` は control-plane の接続を `connection: { user: ubuntu }` にしている。
+  このユーザーは k8s-env の `raspi/` が生成する cloud-init（`user-data`）が作る。Imager の OS カスタマイズでユーザーを作らない。
+- **containerd は Ubuntu の apt の `containerd`（2.2 系）を使う。Docker の `containerd.io` は入れない。**
+  - cloud-init が Ubuntu の `containerd` を入れる。新しく入れた場合、`/etc/containerd/` は作られない。
+  - 使い回しの機体などで `containerd.io` が入っていたら、Ubuntu の `containerd` を apt で入れて置き換える（`containerd.io` は削除される）。
+    このとき `containerd.io` の `/etc/containerd/config.toml`（`version` 行の無いもの）が残るが、#13 の `setup-containerd.sh` はこれを
+    `config.toml.porkadot-bak.<日時>` に退避して config version 3 を作り直す（E2 の V3）。Docker の apt リポジトリも外しておく。
+- **IPv6 のルーター広告（RA）を受けること。** 本番 `fraction` は dual-stack である（2026-10-14 に read-only で確認。Node の podCIDR に `fde7:4ad6:425d::/48` の範囲があり、
+  flannel の `net-conf.json` が `EnableIPv6: true`）。flannel は IPv6 の default route が無いと
+  `failed to get default v6 interface: Unable to find default v6 route` で CrashLoopBackOff になる（E2）。
+  k8s-env の `network-config` は `accept-ra: true` なので満たす。IP を切り替えるときの netplan でも RA を受ける設定を残す。
+- メモリは足りる。E2 の Pi 5 では control-plane の Pod 一式でノード全体が約 1.0 GiB だった。本番の Pi 4 の実測（最大 2.7 GiB）を当てはめても 8GB で余裕がある。
+
 ## 2. 事前準備
 
 交換作業の前日までに済ませておく。2.1〜2.3 は 3 台分まとめて 1 回でよい。2.4 と 2.5 は機体ごと。
@@ -119,13 +135,14 @@ ssh ubuntu@<ノード> 'sudo bash -c ". /etc/etcd/etcd.env && /opt/bin/etcdctl m
 
 ### 2.4 新しい Pi 5 を仮の IP で用意する（機体ごと、ユーザー作業を含む）
 
-**etcd を止めている時間を短くするため、新機は交換の前に仮の IP で cloud-init を済ませておく**（V7 の発見 2）。
-cloud-init は `apt upgrade` と再起動まで含めて 15 分ほどかかる。これを交換中にやると、etcd が 1 メンバー欠けた状態が長引く。
+**etcd を止めている時間を短くするため、交換時の作業が「IP の切り替え、データの展開、`install kubelet`」だけになるところまで、仮の IP で済ませておく**（V7 の発見 2、E2）。
+cloud-init だけで 15 分ほど、kubelet などのダウンロードとイメージの取得にもさらに時間がかかる。これを交換中にやると、etcd が 1 メンバー欠けた状態が長引く。
+ここで事前に済ませるものは、どれもノード固有の asset を使わない。
 
-手順は k8s-env の `raspi/README.md` に従う。違うのは、IP を本番のものではなく仮の空きアドレスにすることだけである。
+OS とネットワークの初期設定は k8s-env の `raspi/README.md` に従う。違うのは、IP を本番のものではなく仮の空きアドレスにすることだけである。
 
-1. **ユーザー**: EEPROM を更新し、NVMe から起動するようにする（README の 2）。
-2. **ユーザー**: OS イメージ（24.04.5。**E2 待ち**で確定）を NVMe SSD に書く（README の 3）。
+1. **ユーザー**: EEPROM を更新し、NVMe から起動するようにする（README の 2）。E2 の機体はすでに NVMe から起動する状態だったので、新しい機体での手順は 1 台目で確かめる。
+2. **ユーザー**: 24.04.5 のイメージを NVMe SSD に書く（README の 3）。
 3. cloud-init の設定を生成する。ホスト名は本番のもの（rasp01〜03）、IP は仮の空きアドレスにする。
    `raspi/envs/rasp0N.sh` は IP を固定で持つので、`raspi/envs/verify.sh` にホスト名と仮の IP を渡す。
 
@@ -133,25 +150,41 @@ cloud-init は `apt upgrade` と再起動まで含めて 15 分ほどかかる�
    NODE_HOSTNAME=rasp03 NODE_ADDRESS=192.168.1.<仮> bash raspi/generate-cloud-init.sh raspi/envs/verify.sh raspi/out/rasp03-tmp
    ```
 
-   対応は rasp01 = .111、rasp02 = .112、rasp03 = .113。
+   対応は rasp01 = .111、rasp02 = .112、rasp03 = .113。この `user-data` が `ubuntu` ユーザー（GitHub の鍵、NOPASSWD sudo）を作り、Ubuntu の `containerd` を入れる。
 4. **ユーザー**: 生成した `user-data` と `network-config` を boot パーティションに置き、初回起動する（README の 4、5）。
-5. README の 6 の確認表をすべて確かめる（NVMe から起動、cgroup v2 と memory controller、containerd 2.2 系、4K ページ、時刻同期など）。
-6. **本番の IP へ切り替える準備**（**E2 待ち**。E2 で手順を確かめる）:
-   - `/etc/netplan/50-cloud-init.yaml` の仮の IP を本番の IP に置き換えたファイルを、新機の上に別名で用意しておく。
-     交換のときは、これを本番の位置に置いて再起動するだけにする。
-   - cloud-init が再起動のたびにネットワーク設定を書き戻さないよう、`/etc/cloud/cloud.cfg.d/` に `network: {config: disabled}` を置く。
-   - 本番の IP に切り替えたあとは、旧機が動いている間は**絶対に起動しない**（IP が衝突する）。
-7. **SSH のホスト鍵を旧機から引き継ぐ**（V10 の推奨）:
-   - 旧機の `/etc/ssh/ssh_host_*`（秘密鍵を含む）を取り出し、新機の `/etc/ssh/` に同じ所有者とパーミッションで置いて `ssh` を再起動する。
-   - 作業端末に一時的に置いたホスト鍵は、置き終えたらすぐ消す。
-   - 新機の仮の IP の known_hosts は、鍵が変わるので `ssh-keygen -R 192.168.1.<仮>` で消す。
-   - こうしておくと、本番の IP に切り替えたあとも `192.168.1.11N` の known_hosts をそのまま使える。ロールバックで旧機に戻したときも known_hosts を触らずに済む。
-8. （任意）etcd を止めている時間をさらに縮めるため、次を事前に済ませておく（**E2 待ち**。効果は E2 で測る）。
-   - `install kubelet` の中で流れる `install-pkgs.sh` と同じ apt パッケージ（`assets/kubelet-default/install-pkgs.sh` の一覧）を入れておく。
-   - control-plane のイメージ（`registry.k8s.io/etcd:3.5.12-0`、`kube-apiserver` / `kube-controller-manager` / `kube-scheduler` / `kube-proxy` の `v1.29.8`、
-     `flannel/flannel:v0.25.1`、`flannel/flannel-cni-plugin:v1.4.1-flannel1`、`quay.io/metallb/speaker:v0.14.5`）を
-     `ctr -n k8s.io images pull` で取得しておく。`setup-containerd` が containerd を再起動しても、取得済みのイメージは残る。
-
+5. README の 6 の確認表をすべて確かめる（NVMe から起動、cgroup v2 と memory controller、containerd 2.2 系、4K ページ、時刻同期など）。加えて次を確かめる。
+   - `ssh ubuntu@192.168.1.<仮> sudo -n true` が通る。
+   - `dpkg -l containerd.io` で入っていない（入っていれば §1.4 のとおり置き換える）。
+   - `ip -6 route show default` に RA による default route がある。
+6. cloud-init のネットワーク設定を止める。`/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg` に `network: {config: disabled}` を置き、
+   再起動しても仮の IP のまま、IPv6 の default route も付くことを確かめる。こうしないと、あとで書き換えた netplan を cloud-init が書き戻しうる。
+7. 2.1 で render した `assets/kubelet-default/` を新機（例: `/root/porkadot-kubelet-default/`）に置き、root で次の 2 つを流す。
+   - `setup-containerd.sh`: 確認は `sudo containerd config dump | grep SystemdCgroup` が `SystemdCgroup = true`、`/etc/containerd/config.toml` が config version 3、`systemctl is-active containerd` が `active`。
+   - `install-deps.sh`: kubelet、kubectl、etcdctl、crictl の arm64 版と CNI プラグインが `/opt/bin`、`/opt/cni/bin` に入る。
+   - kubelet の unit はまだ置かれない（`install.sh` を流さないため）ので、何も起動しない。
+8. `assets/kubelet-default/install-pkgs.sh` が入れる apt パッケージを、一覧のとおり `apt-get install` しておく。
+   `install-pkgs.sh` そのものは流さない（ノード固有の `initiatorname.iscsi` を使うため。交換時に `install kubelet` の中で流れる）。
+9. 新機に載る Pod のイメージを `ctr -n k8s.io images pull` で取得しておく。E2 ではすべて arm64 で取れた。
+   - `registry.k8s.io/etcd:3.5.12-0`
+   - `registry.k8s.io/kube-apiserver` / `kube-controller-manager` / `kube-scheduler` / `kube-proxy` の `v1.29.8`
+   - `flannel/flannel:v0.25.1`、`flannel/flannel-cni-plugin:v1.4.1-flannel1`、`quay.io/metallb/speaker:v0.14.5`
+   - pause のイメージ（`containerd config dump` の sandbox の設定にある版）
+   - 監視の DaemonSet（`quay.io/prometheus/node-exporter:v1.11.1-distroless`、`ghcr.io/yuanying/node-exporter-smartmon:0.19.0`）は任意
+10. **SSH のホスト鍵を旧機から引き継ぐ**（V10 の推奨）。
+    - 旧機の `/etc/ssh/ssh_host_*`（秘密鍵を含む）を取り出し、新機の `/etc/ssh/` に同じ所有者とパーミッションで置いて `ssh` を再起動する。
+    - 新機がもともと持っていた鍵は、**再起動で消えない場所**（例: `/root/ssh-hostkeys-orig/`）へ退避する。`/tmp` は使わない（再起動で消える）。
+      引き継ぐ鍵を新機に一時的に置く場所も同じく `/tmp` にしない。
+    - 作業端末に一時的に置いたホスト鍵は、置き終えたらすぐ消す。
+    - **仮の IP の known_hosts を入れ直す。** `ssh-keygen -R 192.168.1.<仮>` のあと、`ssh-keyscan 192.168.1.<仮> >> ~/.ssh/known_hosts`（`-H` を付けない）。
+      消すだけにすると、交換時に仮の IP へ入る SSH が失敗する。E2 ではこれで etcd を止める時間が約 3 分延びた。
+    - 確認: `ssh -o BatchMode=yes ubuntu@192.168.1.<仮> true` が警告なしで通る。
+    - こうしておくと、本番の IP に切り替えたあとも `192.168.1.11N` の known_hosts をそのまま使える。ロールバックで旧機に戻したときも known_hosts を触らずに済む。
+11. IP を切り替えるスクリプトを新機の `/root/` に置いておく（流すのは交換時）。porkadot-dev の `docs/cp-replacement/rehearsal/netswitch.sh` を本番の値で使う。
+    - 動き: いまの netplan を `/root/` に退避し、本番の IP の静的設定を書いて `netplan apply` する。**120 秒以内に確認のファイル（`/run/netswitch-ok`）が作られなければ、元の netplan に戻す。**
+      新しい IP に入れなくなっても、仮の IP に自動で戻る。再起動は要らない。
+    - 本番の値: インターフェース `eth0`、`192.168.1.11N/16`、default route と DNS は `192.168.0.1`、**IPv6 は RA を受ける**（k8s-env の `network-config` と同じ `accept-ra: true` にそろえる）。
+    - スクリプトも退避先も `/tmp` に置かない。
+12. 新機は仮の IP のまま待たせる。**旧機が動いている間は本番の IP にしない**（IP が衝突する）。
 ### 2.5 交換の当日、最初に確かめること
 
 1 台ごとの作業（§3）に入る前に、毎回確かめる。
@@ -165,7 +198,7 @@ cloud-init は `apt upgrade` と再起動まで含めて 15 分ほどかかる�
 | VIP の広告役 | `kubectl --context fraction -n kube-system describe svc porkadot-kubernetes` の Events（`nodeAssigned`） | 広告しているノードを記録する |
 | MetalLB の speaker | `kubectl --context fraction -n metallb-system get pods -o wide` | braque 以外の 7 ノードで Running。.113 の speaker は再起動が多い（846 回、E3）ので、増えていないかも見る |
 | workload の基準 | `kubectl --context fraction get pods -A -o wide` のうち Running / Completed 以外 | 交換前の一覧を保存する（交換後の比較に使う） |
-| 新機 | 仮の IP で SSH、2.4 の 5 の確認表 | すべて期待どおり |
+| 新機 | 仮の IP で SSH（`BatchMode=yes`）、2.4 の 5〜11 の確認 | すべて期待どおり。事前準備が済んでいる |
 
 交換中の影響を測りたいときは、porkadot-dev の `docs/cp-replacement/rehearsal/external-probe.sh` で VIP の `/healthz` と LoadBalancer の Service を 1 秒ごとに叩いておく。
 
@@ -187,14 +220,18 @@ cloud-init は `apt upgrade` と再起動まで含めて 15 分ほどかかる�
 
 ```
 [3.3 ステップ 0] ─ 対象から apiserver / controller-manager / scheduler を退かせる      （etcd は 3/3 のまま）
-[3.4 etcd 停止] ─ backup → etcd stop → /var/lib/etcd を取り出す                     ┐
-[3.5 機体の入れ替え] ─ 旧機の電源断 → Node 削除 → 新機を本番 IP で起動               │ etcd 2/3 の区間
-[3.6 新機の構築] ─ setup-node → setup-containerd → データ展開 → install kubelet  ┘ （短いほどよい）
-[3.7 確認] ─ etcd 3/3、apiserver Ready、VIP、Node、speaker
+[3.4 etcd 停止] ─ backup → move-leader（要るとき）→ etcd stop → /var/lib/etcd を取り出す ┐
+[3.5 機体の入れ替え] ─ 旧機の電源断 → 新機の IP 切り替え（再起動なし）→ Node 削除          │ etcd 2/3 の区間
+[3.6 etcd を戻す] ─ データ展開 → install kubelet                                    ┘ （短いほどよい）
+[3.7 確認] ─ etcd 3/3、apiserver Ready、VIP、Node、IPv6 の route、speaker
 ```
 
-dev（amd64 の VM）では、新機を事前に用意した場合、etcd を止めてから 3/3 に戻るまで 24〜70 秒、ステップ 0 から apiserver が Ready になるまで約 1〜2 分だった（V7）。
-Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウンロード（kubelet、etcdctl、crictl、CNI）とイメージの取得で、dev より長くなる見込みである。
+E2（Pi 5、事前準備あり）の実測:
+
+- `install kubelet --node` は 10 秒で終わった。IP の切り替えから etcd 3/3 healthy まで 14 秒、Node の Ready まで 17 秒、apiserver の Ready まで 35 秒。
+- 手順どおりに流せば、etcd を止めている時間は 30 秒前後になる見込みである（E2 では手順の誤りで 3 分 46 秒かかった。§5.3）。
+  本番では、ここに旧機の電源断をユーザーが確かめる時間が加わる。
+- その間の VIP、LoadBalancer、Pod からの API と DNS の失敗は 0 回だった。
 
 **etcd 2/3 の区間が 15 分を超えそうなら、そこで止めてユーザーと続行かロールバックかを決める。** この区間は、もう 1 台落ちると etcd が quorum を失う。
 
@@ -227,6 +264,7 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 ### 3.4 旧機の etcd を止めてデータを取り出す ✋
 
 ここから 3.6 の終わりまでが etcd 2/3 の区間である。止まらずに続けて進められるよう、3.5 と 3.6 のコマンドを手元に用意してから始める。
+仮の IP の新機に `ssh -o BatchMode=yes ubuntu@192.168.1.<仮> true` で入れることも、ここで確かめておく。
 
 1. 対象が etcd のリーダーなら、ほかのメンバーへ移す。`etcdctl endpoint status --cluster -w table` でリーダーを確かめ、
    `etcdctl move-leader <移す先のメンバー ID>` を実行する（ID は 16 進）。
@@ -263,27 +301,29 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 
 1. **ユーザー**: 旧機をシャットダウンし（`ssh ubuntu@192.168.1.11N sudo poweroff`）、電源を抜く。**旧機はこの交換が終わるまで起動しない。**
    - 確認: `ping 192.168.1.11N` が応答しない。
-2. Node オブジェクトを消す ✋（V10 の推奨。新機の登録時に `porkadot.yaml` どおりのラベルと taint が付き、旧機の古い情報が残らない）。
+2. 新機を本番の IP に切り替える ✋（2.4 の 11 で置いたスクリプトを使う。再起動は要らない）。
+   - 仮の IP で入り、スクリプトを `systemd-run` で SSH から切り離して流す（例: `ssh ubuntu@192.168.1.<仮> sudo systemd-run --unit netswitch /root/netswitch.sh 192.168.1.11N/16`）。
+     切り替わると仮の IP の SSH は切れる。
+   - **120 秒以内に**、本番の IP で入って確認のファイルを作る（`ssh ubuntu@192.168.1.11N sudo touch /run/netswitch-ok`）。
+     ホスト鍵を引き継いでいるので、known_hosts の警告なしで入れる。作らなければスクリプトが仮の IP に戻す。
+   - 確認: `hostname` が `rasp0M`、`ip -br addr show eth0` が `192.168.1.11N/16` と IPv6 の SLAAC アドレス、`ip -6 route show default` に default route がある。
+   - 切り替えに失敗して仮の IP に戻ったら、原因を調べる。etcd は 2/3 のままなので、長引くなら §4.2 で旧機に戻す。
+   - ホスト鍵を引き継がなかった場合は、`ssh-keygen -R 192.168.1.11N` のあと、`ssh-keyscan 192.168.1.11N >> ~/.ssh/known_hosts` で全種類の鍵を入れ直す。
+     `-H` を付けない。`ssh -o StrictHostKeyChecking=accept-new` で 1 回入るだけでは porkadot が通らない（V10）。
+3. Node オブジェクトを消す ✋（V10 の推奨。旧機を止めたあと、`install kubelet` より前に行う。新機の登録時に `porkadot.yaml` どおりのラベルと taint が付き、旧機の古い情報が残らない）。
 
    ```bash
    kubectl-admin delete node 192.168.1.11N
    ```
 
    - 旧機に割り当てられていた Pod（DaemonSet の Pod など）も消える。podCIDR は新機の登録時に振り直される（dev で flannel の経路と通信に問題が無いことを確かめた）。
-3. 新機を本番の IP に切り替える（**E2 待ち**。2.4 の 6 で用意した方法を使う）。
-   - 仮の IP で SSH し、用意したネットワーク設定を本番の位置に置いて再起動する。
-   - 確認: `ping 192.168.1.11N` が応答する。`ssh ubuntu@192.168.1.11N` が known_hosts の警告なしで入れる（ホスト鍵を引き継いだため）。
-     `hostname` が `rasp0M`、`ip -br addr show eth0` が `192.168.1.11N/16`。
-   - ホスト鍵を引き継がなかった場合は、`ssh-keygen -R 192.168.1.11N` のあと、`ssh-keyscan 192.168.1.11N >> ~/.ssh/known_hosts` で全種類の鍵を入れ直す。
-     `-H` を付けない。`ssh -o StrictHostKeyChecking=accept-new` で 1 回入るだけでは porkadot が通らない（V10）。
 
-### 3.6 新機を構築して etcd を戻す ✋
+### 3.6 etcd のデータを展開して `install kubelet` を流す ✋
 
-1. `porkadot setup-node --node 192.168.1.11N --config ./porkadot.yaml`
-   - etcd の証明書と `etcd-server.yaml` が置かれる。kubelet がまだ無いので、etcd は起動しない。
-2. `porkadot setup-containerd --node 192.168.1.11N --config ./porkadot.yaml`
-   - 確認: 新機で `sudo containerd config dump | grep SystemdCgroup` が `SystemdCgroup = true`。`/etc/containerd/config.toml` が config version 3。
-3. **`install kubelet` より前に**、取り出した `/var/lib/etcd` を新機に展開する。
+`setup-node` と `setup-containerd` は流さない。containerd の設定は 2.4 の 7 で済んでいる。
+`setup-node.sh` は master ではノード固有の etcd の addon（証明書とマニフェスト）を置くだけで、`install kubelet` の中の `install.sh` からも呼ばれる（E2）。
+
+1. **`install kubelet` より前に**、取り出した `/var/lib/etcd` を新機に展開する。
 
    ```bash
    ssh ubuntu@192.168.1.11N 'sudo test ! -e /var/lib/etcd/member && echo empty'
@@ -292,11 +332,11 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 
    - 確認: `sudo ls -ld /var/lib/etcd` が `drwx------ root root`。`/var/lib/etcd/member/snap/db` がある。
    - この順を守れば、空のデータディレクトリで etcd が起動することは無い。空のまま起動すると `--initial-cluster-state=new` で別のクラスタを作ろうとして参加できない。
-4. `porkadot install kubelet --node 192.168.1.11N --config ./porkadot.yaml`
-   - kubelet のバイナリ、etcdctl、crictl、CNI をダウンロードし、apt のパッケージを入れ、kubelet を起動する。
+2. `porkadot install kubelet --node 192.168.1.11N --config ./porkadot.yaml`
+   - `install-deps.sh`（取得済みのバイナリを取り直す）、`install-pkgs.sh`（パッケージは入っている）、`setup-node.sh`（etcd の証明書とマニフェスト）を流し、kubelet を起動する。E2 では 10 秒で終わった。
    - kubelet は `bootstrap.crt` で TLS bootstrap し、クライアント証明書の CSR は自動で承認される（ほかの master の controller-manager が署名する）。
    - etcd の static pod が持ち越したデータで起動し、同じメンバーとしてクラスタに戻る。**ここから先のロールバックは §4.3 になる。**
-5. 新機の Node は登録時にラベル（`k8s.unstable.cloud/master`、`etcd.unstable.cloud/member=node11N`）と taint（`node-role.kubernetes.io/master:NoSchedule`）が付く。
+3. 新機の Node は登録時にラベル（`k8s.unstable.cloud/master`、`etcd.unstable.cloud/member=node11N`）と taint（`node-role.kubernetes.io/master:NoSchedule`）が付く。
    ステップ 0 で外したラベルを手で戻す必要は無い。apiserver の DaemonSet の Pod も自動で起動する。
 
 ### 3.7 確認
@@ -308,8 +348,8 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 | 1 | etcd のメンバー | `etcdctl member list -w table`（新機の上でも、ほかのノードでもよい） | 3 メンバー started。**メンバー ID、名前、peer URL が 2.5 で記録したものと同じ** |
 | 2 | etcd の健全性 | `etcdctl endpoint health --cluster`、`etcdctl endpoint status --cluster -w table` | 3/3 healthy。対象の raft index がほかのメンバーに追いついている |
 | 3 | CSR | `kubectl --context fraction get csr` | 新機のクライアント証明書とサービング証明書の CSR が Approved,Issued。Pending が残っていない |
-| 4 | Node | `kubectl --context fraction get node 192.168.1.11N -o wide --show-labels` | Ready。OS-IMAGE が Ubuntu 24.04.x、CONTAINER-RUNTIME が `containerd://2.2.x`。master と etcd member のラベル、master の taint がある |
-| 5 | cgroup | 新機で `stat -fc %T /sys/fs/cgroup` | `cgroup2fs` |
+| 4 | Node | `kubectl --context fraction get node 192.168.1.11N -o wide --show-labels` | Ready。OS-IMAGE が Ubuntu 24.04.5、CONTAINER-RUNTIME が `containerd://2.2.x`、`kubernetes.io/arch=arm64`。master と etcd member のラベル、master の taint がある |
+| 5 | cgroup と IPv6 | 新機で `stat -fc %T /sys/fs/cgroup`、`ip -6 route show default` | `cgroup2fs`。IPv6 の default route がある（無いと flannel が落ちる。§5.5） |
 | 6 | apiserver | control-plane の Pod の一覧（2.5 と同じコマンド） | 新機の kube-apiserver が Running / Ready。3 台とも Ready |
 | 7 | VIP | `kubectl --context fraction get --raw '/readyz'`、porkadot-kubernetes の EndpointSlice | `ok`。EndpointSlice に 3 台の IP が ready で入っている |
 | 8 | 新機の Pod | `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=192.168.1.11N` | kube-proxy、flannel、MetalLB の speaker、監視の DaemonSet（node-exporter など）が Running |
@@ -341,14 +381,14 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 
 ## 4. ロールバック
 
-どこまで進んだかで戻し方が変わる。境目は「**新機の etcd が一度でも起動したか**」、つまり 3.6 の 4（`install kubelet`）を流したかどうかである。
+どこまで進んだかで戻し方が変わる。境目は「**新機の etcd が一度でも起動したか**」、つまり 3.6 の 2（`install kubelet`）を流したかどうかである。
 
 ### 4.1 ステップ 0 だけ済ませた段階（3.3）
 
 - master ラベルを付け直す: `kubectl-admin label node 192.168.1.11N k8s.unstable.cloud/master=`
 - apiserver の Pod が対象に戻り、Ready になることを確かめる。controller-manager と scheduler は戻さなくてよい。
 
-### 4.2 新機の etcd を起動する前（3.4〜3.6 の 3 まで）
+### 4.2 新機の etcd を起動する前（3.4〜3.6 の 1 まで）
 
 旧機を戻すだけでよい。dev では約 1 分で戻った（V11a）。
 
@@ -362,7 +402,10 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
 
 旧機のデータディレクトリは etcd を止めた時点のままだが、新機の etcd は一度も起動していないので、古いデータで戻してよい。
 
-### 4.3 新機の etcd を起動したあと（3.6 の 4 以降）
+新機は本番の IP に切り替わったままになっている。もう一度使うときは、旧機が止まっていることを確かめてから起動するか、
+LAN を抜いて起動し、`/root/` に退避した netplan で仮の IP に戻してからつなぐ。
+
+### 4.3 新機の etcd を起動したあと（3.6 の 2 以降）
 
 **旧機の古い `/var/lib/etcd` のまま旧機の etcd を起動してはいけない。**
 新機のメンバーが受け取って応答したログを、旧機のデータは持っていない。そのまま起動すると、旧機の etcd は
@@ -412,7 +455,7 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 
 ### 5.2 etcd を 1 メンバー止めている間の apiserver のタイムアウト
 
-- 症状: 3.4 の 3 から 3.6 の 4 までの間、残りの apiserver のログに `http: Handler timeout` と、止めたメンバーへの `grpc: addrConn.createTransport failed to connect` が出る。
+- 症状: 3.4 の 3 から 3.6 の 2 までの間、残りの apiserver のログに `http: Handler timeout` と、止めたメンバーへの `grpc: addrConn.createTransport failed to connect` が出る。
   VIP 経由のリクエストと、Pod からの API の両方で、数秒の失敗が断続的に起きる（V7 の発見 2）。
 - 平常時には起きない。影響の大きさは etcd を止めている時間で決まる。
 - 対処: 新機を事前に用意して（2.4）、etcd 2/3 の区間を短くする。区間が長引いたら（目安 15 分）止めてユーザーと判断する（§3.2）。
@@ -422,7 +465,9 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 
 - 症状: porkadot が `fingerprint ... does not match` で失敗する。
 - 原因: 同じ IP で機体が変わってホスト鍵が変わった。net-ssh は known_hosts を厳密に照合する。
-- 対処: ホスト鍵を引き継いでいれば起きない（2.4 の 7）。起きたら 3.5 の 3 の方法で known_hosts を入れ直す。
+- 対処: ホスト鍵を引き継いでいれば、本番の IP では起きない（2.4 の 10）。起きたら 3.5 の 2 の方法で known_hosts を入れ直す。
+- **仮の IP でも起きる。** ホスト鍵を入れ替えたあとに仮の IP の known_hosts を消しただけだと、交換時の IP 切り替えの SSH が失敗する。
+  E2 ではこれで etcd を止める時間が約 3 分延びた。2.4 の 10 のとおり `ssh-keyscan` で入れ直し、`BatchMode=yes` で入れることを事前に確かめる。
 
 ### 5.4 新機が参加できない（CSR が Pending）
 
@@ -431,7 +476,20 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 - 対処: ほかの master で controller-manager が Running か確かめる。動いていなければ、controller-manager の Pod の定義を写して `nodeName` を健全な master に固定した Pod を手で作る
   （スケジューラーを通らずに起動する）。これが leader になって CSR に署名する。新機が参加したら、手で作った Pod を消す。
 
-### 5.5 全断（方式 B）を採らない理由
+### 5.5 flannel が IPv6 の default route を見つけられない
+
+- 症状: 新機の flannel が `failed to get default v6 interface: Unable to find default v6 route` で CrashLoopBackOff になる（E2）。
+- 原因: 本番は dual-stack で、flannel は `EnableIPv6: true`。新機の netplan が IPv6 の RA を受けない設定（`accept-ra: false` など）だと、v6 の default route が付かない。
+- 対処: netplan を RA を受ける設定（`accept-ra: true`）にして `netplan apply` する。v6 の default route が付けば flannel は動く。
+  事前準備（2.4 の 5、6、11）で RA を受けることを確かめておけば起きない。
+
+### 5.6 ステップ 0 なしの再起動での VIP の途切れ
+
+- 停電や更新で control-plane が予定外に再起動すると、その apiserver が Endpoints に残っている間（E2 では約 30 秒）、VIP への接続が断続的に失敗する。
+  LoadBalancer、Pod からの API、DNS は影響を受けなかった。Pi 5 は再起動から約 1 分で etcd 3/3、apiserver Ready に戻った（E2）。
+- 計画した再起動では、ステップ 0（§3.3）と同じく master ラベルを外してから行えば避けられる。
+
+### 5.7 全断（方式 B）を採らない理由
 
 本番では全断の方式を使わない。A2 が失敗したときの最終手段として 4.4 にだけ残す。
 
@@ -448,7 +506,7 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 
 | 確認 | 方法 | 合格基準 |
 |---|---|---|
-| control-plane の Node | `kubectl --context fraction get nodes -o wide` | 192.168.1.111〜113 が Ready で、OS-IMAGE が Ubuntu 24.04.x（E2 で 26.04 に変えた場合はその版）、CONTAINER-RUNTIME が `containerd://2.x` |
+| control-plane の Node | `kubectl --context fraction get nodes -o wide` | 192.168.1.111〜113 が Ready で、OS-IMAGE が Ubuntu 24.04.5、CONTAINER-RUNTIME が `containerd://2.x` |
 | etcd | `etcdctl endpoint health --cluster`、`etcdctl member list -w table` | 3 メンバーとも healthy。メンバー ID が交換前と同じ |
 | control-plane の Pod | 2.5 と同じコマンド | kube-apiserver 3 台、controller-manager 2 台、scheduler 2 台が Running。controller-manager と scheduler がそれぞれ別の master に分かれている |
 | VIP | `kubectl --context fraction get --raw '/readyz'` | `ok` |
