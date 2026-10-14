@@ -109,7 +109,7 @@ ssh ubuntu@<ノード> 'sudo bash -c ". /etc/etcd/etcd.env && /opt/bin/etcdctl m
 
 - `porkadot etcd backup` は、`--path` で渡したディレクトリに `etcd-<日時>.db` を作る。既定値は cwd の `./backup`。
 - **保存先は k8s-manifests-fraction の `./backup/`** とする（これまでのバックアップもここにある）。
-  このディレクトリは `.gitignore` に入っていないので、**`git add` しないこと**。snapshot には Secret が平文で入っている。
+  このディレクトリは `.gitignore` で除外してある。snapshot には Secret が平文で入っているので、`git add -f` などで追加しないこと。
 - 交換が終わるまで、各回のバックアップを消さない。必要なら作業端末の外（暗号化したストレージ）にも写す。
 
 ### 2.3 ルーター（jumelle）の DHCP の確認（ユーザー作業）
@@ -257,7 +257,7 @@ Pi 5 での所要時間は **E2 待ち**。`install kubelet` の中のダウン�
    ```
 
    - 確認: `tar -tzf` で `etcd/member/snap/db` と `etcd/member/wal/` が入っている。
-   - これも Secret を含むので `git add` しない。
+   - これも Secret を含む。`./backup/` に置くので git には入らない。
 
 ### 3.5 機体を入れ替える（ユーザー作業を含む）
 
