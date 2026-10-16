@@ -17,6 +17,8 @@
 - `verification-results.md`: dev クラスタ（E1）、Raspberry Pi 5 の実機（E2）、本番の読み取り（E3）での検証結果。この手順書で「V7」などと書くのは、この文書の項目である
 - `rehearsal/`: 交換中の影響を測るプローブと、IP の切り替えに使ったスクリプト（`netswitch.sh`）
 
+本番で IP の切り替えに使うスクリプトは、この手順書と同じディレクトリの `netswitch-fraction.sh` である（2.4 の 11）。
+
 E2 では、Pi 5（24.04.5、containerd 2.2.1、cgroup v2）を仮の IP で準備し、dev の master03 を A2 で入れ替えた。
 IP の切り替えから etcd 3/3 healthy まで 14 秒で、その間の VIP、LoadBalancer、Pod からの API と DNS の失敗は 0 回だった。
 
@@ -130,8 +132,18 @@ ssh ubuntu@<ノード> 'sudo bash -c ". /etc/etcd/etcd.env && /opt/bin/etcdctl m
 
 ### 2.3 ルーター（jumelle）の DHCP の確認（ユーザー作業）
 
-- 旧機の MAC アドレスで、192.168.1.111〜113 の静的 DHCP 割り当てが jumelle に残っていないかを確かめる。
-- 新機は IP を固定で持つので割り当てが無くても動く。旧機を戻したとき（ロールバック）に混乱しないよう、残っているものを把握しておく。消すかどうかはユーザーが決める。
+**旧機（Pi 4）の IP は、jumelle の静的 DHCP 割り当てで決まっている。** 旧機の netplan は `dhcp4: true` で、
+jumelle（net-fraction-private の `hosts/jumelle/config.yaml`）の staticMappings が旧機の MAC に .111〜.113 を割り当てている。
+
+| | IP の決まり方 | jumelle の割り当て |
+|---|---|---|
+| 旧機（Pi 4） | DHCP（`dhcp4: true`） | 旧機の MAC → .111〜.113 |
+| 新機（Pi 5） | netplan に固定で書く（2.4 の 3、11） | 無くても動く |
+
+- **交換が 3 台とも終わるまで、jumelle の割り当てを変えない。** 旧機が動いている間に割り当てを変えると、DHCP の更新で旧機の IP が動く。
+  ロールバック（§4.2、§4.3）も、旧機が起動して DHCP で .11N に戻ることを前提にしている。
+- 交換の前に、jumelle の割り当てが旧機の MAC → .111〜.113 になっていることを確かめておく。
+- 3 台の交換が終わったら、割り当てを更新する（§6.3）。
 
 ### 2.4 新しい Pi 5 を仮の IP で用意する（機体ごと、ユーザー作業を含む）
 
@@ -147,10 +159,18 @@ OS とネットワークの初期設定は k8s-env の `raspi/README.md` に従�
    `raspi/envs/rasp0N.sh` は IP を固定で持つので、`raspi/envs/verify.sh` にホスト名と仮の IP を渡す。
 
    ```bash
-   NODE_HOSTNAME=rasp03 NODE_ADDRESS=192.168.1.<仮> bash raspi/generate-cloud-init.sh raspi/envs/verify.sh raspi/out/rasp03-tmp
+   NODE_HOSTNAME=rasp03 NODE_ADDRESS=192.168.1.123 bash raspi/generate-cloud-init.sh raspi/envs/verify.sh raspi/out/rasp03-tmp
    ```
 
-   対応は rasp01 = .111、rasp02 = .112、rasp03 = .113。この `user-data` が `ubuntu` ユーザー（GitHub の鍵、NOPASSWD sudo）を作り、Ubuntu の `containerd` を入れる。
+   | ホスト名 | 本番の IP | 仮の IP（2026-10-16 の準備で使ったもの） |
+   |---|---|---|
+   | rasp01 | 192.168.1.111 | 192.168.1.121 |
+   | rasp02 | 192.168.1.112 | 192.168.1.122 |
+   | rasp03 | 192.168.1.113 | 192.168.1.123 |
+
+   この `user-data` が `ubuntu` ユーザー（NOPASSWD sudo）を作り、Ubuntu の `containerd` を入れる。
+   SSH の公開鍵は、生成時に `NODE_AUTHORIZED_KEYS_URL`（既定は `https://github.com/<user>.keys`）から取得して `user-data` に直接書き込まれる（k8s-env#6）。
+   ほかの鍵を足すときは `NODE_AUTHORIZED_KEYS_FILE` を使う（k8s-env の `raspi/README.md`）。
 4. **ユーザー**: 生成した `user-data` と `network-config` を boot パーティションに置き、初回起動する（README の 4、5）。
 5. README の 6 の確認表をすべて確かめる（NVMe から起動、cgroup v2 と memory controller、containerd 2.2 系、4K ページ、時刻同期など）。加えて次を確かめる。
    - `ssh ubuntu@192.168.1.<仮> sudo -n true` が通る。
@@ -158,7 +178,7 @@ OS とネットワークの初期設定は k8s-env の `raspi/README.md` に従�
    - `ip -6 route show default` に RA による default route がある。
 6. cloud-init のネットワーク設定を止める。`/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg` に `network: {config: disabled}` を置き、
    再起動しても仮の IP のまま、IPv6 の default route も付くことを確かめる。こうしないと、あとで書き換えた netplan を cloud-init が書き戻しうる。
-7. 2.1 で render した `assets/kubelet-default/` を新機（例: `/root/porkadot-kubelet-default/`）に置き、root で次の 2 つを流す。
+7. 2.1 で render した `assets/kubelet-default/` を新機の `/root/porkadot-kubelet-default/`（0700）に置き、root で次の 2 つを流す。
    - `setup-containerd.sh`: 確認は `sudo containerd config dump | grep SystemdCgroup` が `SystemdCgroup = true`、`/etc/containerd/config.toml` が config version 3、`systemctl is-active containerd` が `active`。
    - `install-deps.sh`: kubelet、kubectl、etcdctl、crictl の arm64 版と CNI プラグインが `/opt/bin`、`/opt/cni/bin` に入る。
    - kubelet の unit はまだ置かれない（`install.sh` を流さないため）ので、何も起動しない。
@@ -168,21 +188,33 @@ OS とネットワークの初期設定は k8s-env の `raspi/README.md` に従�
    - `registry.k8s.io/etcd:3.5.12-0`
    - `registry.k8s.io/kube-apiserver` / `kube-controller-manager` / `kube-scheduler` / `kube-proxy` の `v1.29.8`
    - `flannel/flannel:v0.25.1`、`flannel/flannel-cni-plugin:v1.4.1-flannel1`、`quay.io/metallb/speaker:v0.14.5`
-   - pause のイメージ（`containerd config dump` の sandbox の設定にある版）
+   - `registry.k8s.io/pause:3.10.1`（`containerd config dump` の sandbox の設定にある版。2026-10-16 の準備ではこの版だった）
    - 監視の DaemonSet（`quay.io/prometheus/node-exporter:v1.11.1-distroless`、`ghcr.io/yuanying/node-exporter-smartmon:0.19.0`）は任意
 10. **SSH のホスト鍵を旧機から引き継ぐ**（V10 の推奨）。
-    - 旧機の `/etc/ssh/ssh_host_*`（秘密鍵を含む）を取り出し、新機の `/etc/ssh/` に同じ所有者とパーミッションで置いて `ssh` を再起動する。
+    - 引き継ぐのは RSA、ECDSA、Ed25519 の鍵（`/etc/ssh/ssh_host_{rsa,ecdsa,ed25519}_key` と `.pub`）である。
+      **旧機の DSA の鍵（`ssh_host_dsa_key`）は移さない。** 新機の OpenSSH 9.6 は DSA を扱わない。
     - 新機がもともと持っていた鍵は、**再起動で消えない場所**（例: `/root/ssh-hostkeys-orig/`）へ退避する。`/tmp` は使わない（再起動で消える）。
-      引き継ぐ鍵を新機に一時的に置く場所も同じく `/tmp` にしない。
-    - 作業端末に一時的に置いたホスト鍵は、置き終えたらすぐ消す。
+    - 鍵は作業端末に置かず、SSH のパイプで旧機から新機へ直接移す。tar の `-p` で所有者とパーミッションを保つ。
+
+      ```bash
+      ssh ubuntu@192.168.1.11N 'sudo tar -C /etc/ssh -cpf - ssh_host_rsa_key ssh_host_rsa_key.pub ssh_host_ecdsa_key ssh_host_ecdsa_key.pub ssh_host_ed25519_key ssh_host_ed25519_key.pub' \
+        | ssh ubuntu@192.168.1.<仮> 'sudo tar -C /etc/ssh -xpf -'
+      ```
+
+      置いたあと、新機で `ssh` を再起動する（`sudo systemctl restart ssh`）。
     - **仮の IP の known_hosts を入れ直す。** `ssh-keygen -R 192.168.1.<仮>` のあと、`ssh-keyscan 192.168.1.<仮> >> ~/.ssh/known_hosts`（`-H` を付けない）。
       消すだけにすると、交換時に仮の IP へ入る SSH が失敗する。E2 ではこれで etcd を止める時間が約 3 分延びた。
     - 確認: `ssh -o BatchMode=yes ubuntu@192.168.1.<仮> true` が警告なしで通る。
     - こうしておくと、本番の IP に切り替えたあとも `192.168.1.11N` の known_hosts をそのまま使える。ロールバックで旧機に戻したときも known_hosts を触らずに済む。
-11. IP を切り替えるスクリプトを新機の `/root/` に置いておく（流すのは交換時）。porkadot-dev の `docs/cp-replacement/rehearsal/netswitch.sh` を本番の値で使う。
-    - 動き: いまの netplan を `/root/` に退避し、本番の IP の静的設定を書いて `netplan apply` する。**120 秒以内に確認のファイル（`/run/netswitch-ok`）が作られなければ、元の netplan に戻す。**
+11. IP を切り替えるスクリプト（このディレクトリの `netswitch-fraction.sh`）を、新機の `/root/netswitch-fraction.sh`（0700、root 所有）に置いておく（流すのは交換時）。
+    - 動き: いまの netplan を `/root/netplan.bak.<日時>/` に退避し、`/etc/netplan/50-cloud-init.yaml` の IPv4 アドレスの行だけを本番の IP に書き換えて `netplan apply` する。
+      **120 秒以内に確認のファイル（`/run/netswitch-ok`）が作られなければ、元の netplan に戻す。**
       新しい IP に入れなくなっても、仮の IP に自動で戻る。再起動は要らない。
-    - 本番の値: インターフェース `eth0`、`192.168.1.11N/16`、default route と DNS は `192.168.0.1`、**IPv6 は RA を受ける**（k8s-env の `network-config` と同じ `accept-ra: true` にそろえる）。
+    - porkadot-dev の `docs/cp-replacement/rehearsal/netswitch.sh` との違い: netplan を新しく書かず、k8s-env の cloud-init が作った netplan のアドレスだけを変える。
+      `accept-ra: true`（§1.4）、default route と DNS の `192.168.0.1` は、準備したときのまま残る。
+    - 実行前の検査: 引数が `192.168.1.x/16` の形か、netplan に `accept-ra: true` があるか、IPv4 アドレスの行がちょうど 1 つか。どれかが外れたら何も変えずに終わる。
+      cloud-init はアドレスを引用符付き（`- "192.168.1.121/16"`）で書くので、引用符の有無のどちらでも扱う。
+    - 2026-10-16 に rasp03 で、確認のファイルを作らなければ 120 秒後に仮の IP へ戻ること、作れば新しい IP のまま残ることを確かめた。
     - スクリプトも退避先も `/tmp` に置かない。
 12. 新機は仮の IP のまま待たせる。**旧機が動いている間は本番の IP にしない**（IP が衝突する）。
 ### 2.5 交換の当日、最初に確かめること
@@ -302,7 +334,7 @@ E2（Pi 5、事前準備あり）の実測:
 1. **ユーザー**: 旧機をシャットダウンし（`ssh ubuntu@192.168.1.11N sudo poweroff`）、電源を抜く。**旧機はこの交換が終わるまで起動しない。**
    - 確認: `ping 192.168.1.11N` が応答しない。
 2. 新機を本番の IP に切り替える ✋（2.4 の 11 で置いたスクリプトを使う。再起動は要らない）。
-   - 仮の IP で入り、スクリプトを `systemd-run` で SSH から切り離して流す（例: `ssh ubuntu@192.168.1.<仮> sudo systemd-run --unit netswitch /root/netswitch.sh 192.168.1.11N/16`）。
+   - 仮の IP で入り、スクリプトを `systemd-run` で SSH から切り離して流す（`ssh ubuntu@192.168.1.<仮> sudo systemd-run --unit netswitch /root/netswitch-fraction.sh 192.168.1.11N/16`）。
      切り替わると仮の IP の SSH は切れる。
    - **120 秒以内に**、本番の IP で入って確認のファイルを作る（`ssh ubuntu@192.168.1.11N sudo touch /run/netswitch-ok`）。
      ホスト鍵を引き継いでいるので、known_hosts の警告なしで入れる。作らなければスクリプトが仮の IP に戻す。
@@ -518,6 +550,7 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 
 - 新機の etcd が起動した時点で、旧機の `/var/lib/etcd` は古くなっている。**旧機をそのままクラスタに戻すことはできない**（§4.3）。
   6.1 の確認が済んで数日たつまでは、旧機を電源断のまま、SD カードも含めて保管する（調査用）。
+- jumelle の割り当てを更新する（§6.3）までは、旧機を LAN につないで起動しない。旧機は DHCP で .11N を受け取り、新機と IP が衝突する。
 - 処分や再利用の前に、旧機の SD カードを消去する。SD には etcd のデータ（Secret を含む）、etcd と kubelet の証明書と鍵、SSH のホスト鍵（新機と同じ鍵）が入っている。
 - 作業端末の `./backup/` にある `/var/lib/etcd` の tar も同じく機密である。交換が落ち着いたら、残すものを決めて消す。
 
@@ -525,4 +558,14 @@ A2 では起きない想定だが、もう 1 台が落ちて etcd が quorum を
 
 - k8s-manifests-fraction: 2.1 の `render kubelet` の差分を PR でマージしておく。IP、メンバー名、ラベルは変わらないので、`porkadot.yaml` の変更は要らない。
   交換の作業記録（所要時間、版、起きたこと）を残すなら、この `docs/cp-replacement/` に追記する。
+- net-fraction-private: **3 台の交換が終わってから**、jumelle の staticMappings（`hosts/jumelle/config.yaml`）を更新する（§2.3）。PR で出す。
+  - .111〜.113 を新機の MAC に割り当て直す。新機は IP を固定で持つので必須ではないが、割り当てを実機に合わせておく。
+
+    | ホスト名 | IP | 新機の MAC |
+    |---|---|---|
+    | rasp01 | 192.168.1.111 | `2c:cf:67:9b:83:75` |
+    | rasp02 | 192.168.1.112 | `2c:cf:67:9b:cb:c4` |
+    | rasp03 | 192.168.1.113 | `2c:cf:67:9b:bc:96` |
+
+  - 旧機の MAC には、.111〜.113 と重ならない別の IP を割り当てる（値はこの PR で決める）。保管中の旧機を調査のために起動しても、本番の IP と衝突しない。
 - 交換の結果は llm-wiki の Wiki（`topics/自宅クラスター` の OS 表記、`synthesis/cluster-upgrade-plan-2026` の進捗）にも反映する。これは別の作業単位で行う。
