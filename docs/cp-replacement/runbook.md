@@ -265,6 +265,11 @@ E2（Pi 5、事前準備あり）の実測:
   本番では、ここに旧機の電源断をユーザーが確かめる時間が加わる。
 - その間の VIP、LoadBalancer、Pod からの API と DNS の失敗は 0 回だった。
 
+本番の 1 台目（.113、2026-10-16）の実測:
+
+- `etcd stop`（11:33:40Z）から etcd 3/3 healthy（11:37:26Z）まで約 3 分 46 秒。旧機の poweroff とその確認を待つ時間を含む。
+- `install kubelet --node` は 10 秒で終わった。
+
 **etcd 2/3 の区間が 15 分を超えそうなら、そこで止めてユーザーと続行かロールバックかを決める。** この区間は、もう 1 台落ちると etcd が quorum を失う。
 
 ### 3.3 ステップ 0: 対象から control-plane の Pod を退かせる ✋
@@ -320,7 +325,7 @@ E2（Pi 5、事前準備あり）の実測:
    - 確認: 対象で `sudo /opt/bin/crictl ps --name etcd` が空。`/opt/porkadot/etcd-server.yaml` がある。
      残りの 2 メンバーで `etcdctl endpoint health --cluster` を流すと、対象だけが unhealthy で、ほかの 2 台は healthy。
    - この時点から、apiserver の一部のリクエストが断続的にタイムアウトしうる（§5.2）。
-4. 対象の `/var/lib/etcd` を tar で固めて手元へコピーする。所有者（root）とパーミッション（0700）を保つ。
+4. 対象の `/var/lib/etcd` を tar で固めて手元へコピーする。所有者（root）とパーミッションを保つ。本番の旧機の `/var/lib/etcd` は 0755 だった（0700 ではない）。tar の `-p` でそのまま持ち込めばよく、新機で直す必要は無い。
 
    ```bash
    ssh ubuntu@192.168.1.11N 'sudo tar -C /var/lib -czpf - etcd' > ./backup/node11N-var-lib-etcd-<日時>.tar.gz
@@ -348,7 +353,8 @@ E2（Pi 5、事前準備あり）の実測:
    kubectl-admin delete node 192.168.1.11N
    ```
 
-   - 旧機に割り当てられていた Pod（DaemonSet の Pod など）も消える。podCIDR は新機の登録時に振り直される（dev で flannel の経路と通信に問題が無いことを確かめた）。
+   - 旧機に割り当てられていた Pod は GC で消える。ただし DaemonSet の Pod（flannel、kube-proxy、MetalLB の speaker、監視）は、GC される前に新機の kubelet が同じ Node 名で引き取って起動することがある。
+     本番の .113 ではそうなり、AGE が古いまま Running になった。どちらになっても問題ない。podCIDR は新機の登録時に振り直される（dev で flannel の経路と通信に問題が無いことを確かめた）。
 
 ### 3.6 etcd のデータを展開して `install kubelet` を流す ✋
 
@@ -362,7 +368,7 @@ E2（Pi 5、事前準備あり）の実測:
    cat ./backup/node11N-var-lib-etcd-<日時>.tar.gz | ssh ubuntu@192.168.1.11N 'sudo tar -C /var/lib -xzpf -'
    ```
 
-   - 確認: `sudo ls -ld /var/lib/etcd` が `drwx------ root root`。`/var/lib/etcd/member/snap/db` がある。
+   - 確認: `sudo ls -ld /var/lib/etcd` が root 所有で、旧機と同じパーミッション（本番の旧機では `drwxr-xr-x`）。`/var/lib/etcd/member/snap/db` がある。
    - この順を守れば、空のデータディレクトリで etcd が起動することは無い。空のまま起動すると `--initial-cluster-state=new` で別のクラスタを作ろうとして参加できない。
 2. `porkadot install kubelet --node 192.168.1.11N --config ./porkadot.yaml`
    - `install-deps.sh`（取得済みのバイナリを取り直す）、`install-pkgs.sh`（パッケージは入っている）、`setup-node.sh`（etcd の証明書とマニフェスト）を流し、kubelet を起動する。E2 では 10 秒で終わった。
@@ -370,6 +376,15 @@ E2（Pi 5、事前準備あり）の実測:
    - etcd の static pod が持ち越したデータで起動し、同じメンバーとしてクラスタに戻る。**ここから先のロールバックは §4.3 になる。**
 3. 新機の Node は登録時にラベル（`k8s.unstable.cloud/master`、`etcd.unstable.cloud/member=node11N`）と taint（`node-role.kubernetes.io/master:NoSchedule`）が付く。
    ステップ 0 で外したラベルを手で戻す必要は無い。apiserver の DaemonSet の Pod も自動で起動する。
+4. `node-role.kubernetes.io/control-plane` ラベルを手で付け直す ✋。
+
+   ```bash
+   kubectl-admin label node 192.168.1.11N node-role.kubernetes.io/control-plane=
+   ```
+
+   - 旧機にはこのラベルが付いていたが、`porkadot.yaml` の labels には無く、手で付けたものである。
+     kubelet は NodeRestriction のため `node-role.*` のラベルを自分で付けられないので、Node を消して登録し直すと消え、`kubectl get nodes` の ROLES が `<none>` になる。
+   - このラベルを参照しているのは、kubelet-serving-cert-approver の「control-plane を避ける」preferred affinity だけである。付け忘れても control-plane は動く。
 
 ### 3.7 確認
 
@@ -380,7 +395,7 @@ E2（Pi 5、事前準備あり）の実測:
 | 1 | etcd のメンバー | `etcdctl member list -w table`（新機の上でも、ほかのノードでもよい） | 3 メンバー started。**メンバー ID、名前、peer URL が 2.5 で記録したものと同じ** |
 | 2 | etcd の健全性 | `etcdctl endpoint health --cluster`、`etcdctl endpoint status --cluster -w table` | 3/3 healthy。対象の raft index がほかのメンバーに追いついている |
 | 3 | CSR | `kubectl --context fraction get csr` | 新機のクライアント証明書とサービング証明書の CSR が Approved,Issued。Pending が残っていない |
-| 4 | Node | `kubectl --context fraction get node 192.168.1.11N -o wide --show-labels` | Ready。OS-IMAGE が Ubuntu 24.04.5、CONTAINER-RUNTIME が `containerd://2.2.x`、`kubernetes.io/arch=arm64`。master と etcd member のラベル、master の taint がある |
+| 4 | Node | `kubectl --context fraction get node 192.168.1.11N -o wide --show-labels` | Ready。OS-IMAGE が Ubuntu 24.04.5、CONTAINER-RUNTIME が `containerd://2.2.x`、`kubernetes.io/arch=arm64`。master と etcd member のラベル、master の taint がある。ROLES が `control-plane`（3.6 の 4） |
 | 5 | cgroup と IPv6 | 新機で `stat -fc %T /sys/fs/cgroup`、`ip -6 route show default` | `cgroup2fs`。IPv6 の default route がある（無いと flannel が落ちる。§5.5） |
 | 6 | apiserver | control-plane の Pod の一覧（2.5 と同じコマンド） | 新機の kube-apiserver が Running / Ready。3 台とも Ready |
 | 7 | VIP | `kubectl --context fraction get --raw '/readyz'`、porkadot-kubernetes の EndpointSlice | `ok`。EndpointSlice に 3 台の IP が ready で入っている |
