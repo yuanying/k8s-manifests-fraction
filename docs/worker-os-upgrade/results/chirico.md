@@ -192,3 +192,64 @@ drain の後に残った iSCSI のセッションは、ユーザーの判断で�
 - `/etc/update-manager/release-upgrades` は `Prompt=lts`。`ubuntu-release-upgrader-core` は 1:22.04.21。`do-release-upgrade -c` は `New release '24.04.5 LTS' available`
 - 手元で変わっている conffile（dpkg の md5 が合わないもの）: `/etc/sudoers`、`/etc/multipath.conf`、`/etc/containerd/config.toml`（`containerd.io` は remove 済みで、設定ファイルだけが残る `rc` の状態）
 - ucf が管理するファイルで手元で変わっているもの: **`/etc/ssh/sshd_config`**（末尾に `PasswordAuthentication no` を足したもの。ucf の hash と合わない）。調査 §2.2 の表には無かった。`/etc/default/grub` は ucf の hash と一致する
+
+### 4.2 実行（ユーザーが自分の端末から、対話モード）
+
+| 時刻（UTC） | 出来事 |
+|---|---|
+| 12:47 ごろ | ユーザーが `sudo do-release-upgrade` を実行（SSH 越し。予備の sshd と `screen`、`DistUpgradeViewText`） |
+| 12:48:18 | 更新の計算。この時点の Obsolete は空 |
+| 12:56〜13:04 | **作業端末から chirico に新しく SSH で入れなかった**。port 22 は `Connection refused`、予備の port 1022 は `kex_exchange_identification: Connection reset by peer`。ping と Node の Ready は続いていた。openssh-server と libssl（t64 の移行）が入れ替わる間のこと。ユーザーの既存の接続と `screen` は生きていて、更新は止まらなかった |
+| 13:04:09 | port 22 に入れるようになった。os-release は 24.04.5、`ssh.socket` と `ssh.service` が active |
+| 13:05:28 | 不要になったパッケージの削除（下） |
+| 13:08:32 | 再起動（ユーザーが最後の質問に答えた）。起動は 28.6 秒 |
+| 13:09:02 | Ready（SchedulingDisabled）、Ubuntu 24.04.5、6.8.0-147-generic、`containerd://2.2.1` |
+
+conffile の質問と答え（`/var/log/dist-upgrade/screenlog.0`）:
+
+| ファイル | 答え |
+|---|---|
+| `/etc/sudoers` | `N`（手元の版を残す）。`%sudo ALL=(ALL:ALL) NOPASSWD:ALL` が残っている |
+| `/etc/ssh/sshd_config`（ucf） | 「keep the local version currently installed」。`PasswordAuthentication no` が残り、メンテナの版は `sshd_config.ucf-dist` に置かれた |
+
+`/etc/multipath.conf` の質問は出なかった（multipath-tools 0.9.4-5ubuntu8.2 になり、中身は addon の版のまま）。
+
+削除されたもの（`/var/log/dist-upgrade/history.log`）:
+
+- `Remove:` は、24.04 で名前が変わったライブラリ（t64 の移行の `libssl3`、`libcurl4` など）の古い名前だけ
+- 不要になったパッケージとして purge されたもの: 5.15.0-164 の kernel 一式、python3.10、`libperl5.34` などの古いライブラリ、`irqbalance`、`isc-dhcp-client`、`isc-dhcp-common`、`binutils` 一式、`policykit-1`、`pkexec`、`ubuntu-advantage-tools` など。`linux-headers-5.15.0-198` は消せずに残った
+- 残っているもの: `containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`sudo`、`openssh-server` はすべて 24.04 の版で入っている。kernel は 5.15.0-198 と 6.8.0-147
+
+## 5. 24.04 での確認（runbook §3.6・§3.7）
+
+版:
+
+| 項目 | 値 |
+|---|---|
+| OS | Ubuntu 24.04.5 LTS |
+| kernel | 6.8.0-147-generic |
+| containerd | 2.2.1-0ubuntu1~24.04.3（`containerd://2.2.1`） |
+| runc | 1.3.4-0ubuntu1~24.04.1 |
+| nftables | 1.0.9 |
+| kubelet | v1.29.8 |
+
+- §3.6: `/etc/containerd/config.toml` は §3.4 で作った version 3 のまま（`SystemdCgroup = true`、`registry.k8s.io/pause:3.10.1`）。containerd の journal に migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。containerd と kubelet は active。`setup-containerd` の再実行は要らなかった
+- 起動の直後、cnidaria が 1 度 CrashLoopBackOff になった（`dial tcp 10.254.0.1:443: connect: connection refused`。kube-proxy が Service の規則を入れる前に API に繋ごうとした）。13:09:16 に起動し、経路を入れて nft のテーブルを適用した。MetalLB の speaker も 1 度 CrashLoopBackOff になってから戻った
+
+| # | 確認 | 結果 |
+|---|---|---|
+| 1 | Node | Ready,SchedulingDisabled。24.04.5、6.8.0-147-generic、`containerd://2.2.1`。ラベル `metallb=speaker` が残っている |
+| 2 | CSR | Pending は無い |
+| 3 | DaemonSet の Pod | cnidaria、kube-proxy、engine-image、longhorn-csi-plugin、longhorn-manager、speaker、node-exporter、smart-exporter が Running。起動の後、restart は増えていない |
+| 4 | ログ | cnidaria と kube-proxy のログが読める |
+| 5 | cnidaria | `verify-nodes.sh` は 64 PASS、FAIL 0。ベースラインとの差は、cnidaria のログの `applied-nftables` の数（288 → 505）だけ。cnidaria のログに error は無い |
+| 6 | ホストの nft | 1.0.9。`nft list tables` は `inet cnidaria` を含めて rc 0（segfault しない）。22.04 の 1.0.2 で落ちた問題は、amd64 の 24.04 では起きない |
+| 7 | iptables | FORWARD の policy は ACCEPT。v4・v6 とも `CNIDARIA-FWD` へのジャンプが先頭 |
+| 8 | ディスク | `/var/lib/longhorn`（`/dev/sda`、1.8T）がマウントされている |
+| 9 | ZFS | chirico には無い |
+| 10 | multipath と iSCSI | `/etc/multipath.conf` は addon の版（`^sd[a-z0-9]+` の blacklist）。multipathd は active。iscsid は `iscsid.socket` が active（iscsid.service は inactive で、必要なときに起動する）。iSCSI のセッションは無い |
+| 11 | sudo | `sudo -n true` が通る |
+| 12 | DNS | `cluster-dns` は修正済みの版で active。`porka-dummy01` に 10.254.0.10 と検索ドメイン |
+| 13 | 失敗している unit | 無い。`ordering cycle` も 0 |
+
+apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261017` だけ。`/var/run/reboot-required` は無い。
