@@ -181,7 +181,7 @@ replica 1 のボリュームは止まってよい（§2.1 の 2）ので、repli
 
 - `allow-if-replica-is-stopped` は、最後の replica が**止まっている**ときだけ drain を通す。drain で Pod が退いてボリュームが detach されると replica が止まるので、drain が進む。replica が動いている（データの書き込みが続いている）ボリュームは引き続き止めてくれる。
   `always-allow` は動いている replica があっても通すので、書き込み中の replica を止めて faulted にしうる。使わない
-- 止まった replica のデータはそのノードのディスクに残り、ノードが戻ればそのまま使える。`replica-replenishment-wait-interval` が 6000 秒なので、100 分以内に戻れば、Longhorn は別のノードで作り直さずに元の replica を使う
+- 止まった replica のデータはそのノードのディスクに残り、ノードが戻ればそのまま使える。`replica-replenishment-wait-interval` が 6000 秒なので、100 分以内に戻れば、Longhorn は別のノードで作り直さずに元の replica を使う。この手順では、作業中は再構築そのものを止める（§2.5）ので、100 分を過ぎても作業中には作り直されない
 - prometheus のボリュームは、使う Pod と replica が同じノードにある（prometheus-0 と chirico、prometheus-1 と duchamp）。drain で Pod が退けば detach されて replica が止まるので、ポリシーの変更だけで通る。prometheus は operator が管理しているので、手で replica 数を変えない
 - MinIO の 4 つのボリュームは、replica が oeilvert にあり、Pod は別のノード（調査の時点では pablo、duchamp、chirico）でアタッチしている。oeilvert を drain しても、それらの Pod は退かないので、replica は動き続け、ポリシーを変えても drain が止まる。
   MinIO を止めてボリュームを detach させてから drain する。止める方法は、Pod を個別に消す（StatefulSet が作り直してアタッチし直す）より、StatefulSet を 0 にするほうが確実である
@@ -192,6 +192,49 @@ replica 1 のボリュームは止まってよい（§2.1 の 2）ので、repli
 
 drain を始める前に、対象のノードの replica の配置をもう一度見る。replica 1 のボリュームで、replica が対象のノードにあり、Pod が別のノードにあるものが §2.4 の表のほかにあれば、それを使う workload も同じように止めるかをユーザーに確かめる。
 drain が止まったら、`kubectl --context fraction get pdb -n longhorn-system` と drain の出力を見て、どのボリュームで止まっているかを調べる。
+
+### 2.5 作業中は Longhorn の replica の再構築と自動の balance を止める
+
+1 台の作業の間、Longhorn が replica を作り直したり、別のノードへ動かしたりしないようにする（ユーザーの指示、2026-10-17）。
+対象のノードの replica は止まるだけでディスクに残るので、ノードが戻ったら、その replica を再同期して使えばよい。作業中に別のノードで作り直すと、データのコピーが増え、戻った後に余った replica の片付けと balance がまた走る。
+
+作業の間だけ、次の 2 つの設定（`longhorn-system` の `settings.longhorn.io`）を変える。drain の前に変え（§3.3 の 5）、uncordon して Longhorn の node が Ready に戻った後に元に戻す（§3.8 の 3）。
+
+| 設定 | 元の値（2026-10-17） | 作業中の値 | 効果 |
+|---|---|---|---|
+| `concurrent-replica-rebuild-per-node-limit` | `5`（既定値） | `0` | replica の再構築をしない |
+| `replica-auto-balance` | `least-effort` | `disabled` | replica の自動の balance をしない |
+
+Longhorn v1.11.2（本番の版）のドキュメント（[Settings](https://longhorn.io/docs/1.11.2/references/settings/)）での説明:
+
+- Concurrent Replica Rebuild Per Node Limit（Danger Zone）: 「when the value is 0, it means disabling the replica rebuilding」。
+  再構築を止めると「replica object replenishment will be directly skipped」、つまり足りない replica を作る処理自体が飛ばされる。
+  「When the value is 0, the eviction and data locality feature won't work. But this shouldn't have any impact to any current replica rebuild and backup restore」。0 にした時点で走っている再構築は止まらない。
+- Replica Auto Balance（Scheduling）: 値は `disabled`（既定値）、`least-effort`、`best-effort`。ボリュームごとの `spec.replicaAutoBalance` がグローバルの値より優先されるが、本番のボリュームはすべて `ignored`（グローバルの値に従う）である（2026-10-17 の読み取り）。
+
+`longhorn-default-setting` の ConfigMap はこの 2 つを持っていない（`priority-class` と `disable-revision-counter` だけ）ので、手で変えた値が上書きされることはない。
+
+変え方（✋。`node-drain-policy` も同じ形で変える）:
+
+```sh
+kubectl --context fraction -n longhorn-system get settings.longhorn.io \
+  concurrent-replica-rebuild-per-node-limit replica-auto-balance node-drain-policy   # 変える前の値を作業記録に書く
+kubectl-admin -n longhorn-system patch settings.longhorn.io concurrent-replica-rebuild-per-node-limit --type=merge -p '{"value":"0"}'
+kubectl-admin -n longhorn-system patch settings.longhorn.io replica-auto-balance --type=merge -p '{"value":"disabled"}'
+kubectl --context fraction -n longhorn-system get settings.longhorn.io \
+  concurrent-replica-rebuild-per-node-limit replica-auto-balance                      # VALUE が変わり、APPLIED が true であること
+```
+
+元に戻すときは、記録した値（2026-10-17 の時点では `5` と `least-effort`）で同じように patch し、読み直して確かめる。
+
+注意:
+
+- **この 2 つの設定はクラスタ全体にかかる。** 0 にしている間は、対象のノードだけでなく、**ほかのノードで replica が壊れても作り直されない**。2 replica のボリュームは、その間 1 つの replica で動き続ける。
+  変えておくのは 1 台の作業の間（§3.3 の 5 から §3.8 の 3 まで）だけにする。作業を途中でやめる場合も必ず戻す（§4）。次のノードに持ち越さない
+- 0 の間は data locality（本番では `best-effort` のボリュームが 17 個ある）と eviction も動かない。作業の間だけなので問題にしない
+- 元に戻すと、止まっていた replica の再同期が始まる。uncordon した後、Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ってから戻す。
+  Ready になる前に戻すと、対象のノードの replica を使えず、ほかのノードで作り直されることがある
+- `replica-replenishment-wait-interval` は 6000 秒（100 分）である。replica が止まってから 100 分を過ぎて元に戻すと、Longhorn は止まった replica を使わずに新しい replica を作ることがある（差分ではなく全体のコピーになる）。データは失わないので、時間がかかるだけである
 
 ## 3. 1 台ごとの手順
 
@@ -237,12 +280,16 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
 2. 対象のノードの設定を控える（読み取り。作業端末に保存する）: `/etc/containerd/config.toml`、`/etc/apt/sources.list.d/`、`kubelet.service`、`/etc/systemd/system/cluster-dns.service`、`/etc/multipath.conf`、`/etc/sudoers`、netplan、`dpkg --get-selections`。
 3. ✋ `infra-admin` のトークンを発行する。
 4. ✋ `kubectl-admin cordon <ノード>`。
-5. ✋ chirico、duchamp、oeilvert では、Longhorn の `node-drain-policy` を `allow-if-replica-is-stopped` にする（§2.4）。
-6. ✋ oeilvert では、`minio/minio` の StatefulSet を 0 にし、4 つの MinIO のボリュームが detach されるのを待つ（§2.4）。
-7. ✋ `kubectl-admin drain <ノード> --ignore-daemonsets --delete-emptydir-data`。
+5. ✋ Longhorn の `concurrent-replica-rebuild-per-node-limit` を `0` に、`replica-auto-balance` を `disabled` にする（§2.5）。全ノードで行う。
+   - 変える前に、2 つの設定と `node-drain-policy` の値を読んで作業記録に書く（2026-10-17 の時点では `5`、`least-effort`、`block-if-contains-last-replica`）。
+   - 変えた後に値を読み直し、`0` と `disabled` になっていること（APPLIED が true）を確かめる。
+6. ✋ chirico、duchamp、oeilvert では、Longhorn の `node-drain-policy` を `allow-if-replica-is-stopped` にする（§2.4）。
+7. ✋ oeilvert では、`minio/minio` の StatefulSet を 0 にし、4 つの MinIO のボリュームが detach されるのを待つ（§2.4）。
+8. ✋ `kubectl-admin drain <ノード> --ignore-daemonsets --delete-emptydir-data`。
    - 止まったら、出力と `kubectl --context fraction get pdb -A` を見る。Longhorn の instance-manager の PDB で止まっているなら、§2.4 の「注意」に従う（変更するなら ✋）。
    - MinIO の PDB（maxUnavailable 1）で止まるなら、他のノードの MinIO の Pod が Ready になるのを待つ。
-8. drain の後、対象のノードの Longhorn のボリュームがすべて detach されたこと（または他のノードへ移ったこと）を確かめる。iSCSI のセッション（`sudo iscsiadm -m session`）が残っていないこと。
+9. drain の後、対象のノードの Longhorn のボリュームがすべて detach されたこと（または他のノードへ移ったこと）を確かめる。
+   - 対象のノードの replica の代わりに、新しい replica がほかのノードに作られていないこと（§2.5 の設定が効いていること）。iSCSI のセッション（`sudo iscsiadm -m session`）が残っていないこと。
 
 ノードごとの追加の作業:
 
@@ -435,13 +482,18 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
 1. ✋ `kubectl-admin uncordon <ノード>`。
 2. §2.4 で変えたものを ✋ 元に戻す。`node-drain-policy` を `block-if-contains-last-replica` に、oeilvert では `minio/minio` の StatefulSet を 4 に、Prometheus リソースの `spec.replicas` を変えていれば 2 に戻す。
    MinIO と prometheus の Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
-3. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。再構築が走っていれば終わるまで待つ。
+3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ §2.5 の 2 つの設定を元の値（§3.3 の 5 で記録した値）に戻す。
+   - `concurrent-replica-rebuild-per-node-limit` を `5` に、`replica-auto-balance` を `least-effort` に戻す（2026-10-17 の時点の値）。
+   - 戻した後に値を読み直して確かめる。
+   - 戻すと、対象のノードの止まっていた replica の再同期が始まる。
+4. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。**再同期（再構築）が終わるまで待つ**（§3.9 の条件）。
+   - 再構築が始まらない、または対象のノードの replica ではなくほかのノードに新しい replica が作られた場合は、作業記録に書く（§2.5 の注意の 100 分を過ぎた場合など）。
    - faulted になったボリュームは自動では直らない。使っている Pod を消してアタッチし直すと auto-salvage が走る（Wiki `entities/oeilvert`）。Pod を消すのは ✋
    - 古い iSCSI セッションでアタッチできない場合は §5.3
-4. Running / Completed 以外の Pod が、ベースラインから増えていないこと。
-5. ✋ `netcheck.sh` と `check-apps.sh`（cnidaria の手順書のスクリプト）を流す。結果がベースラインと同じであること。LoadBalancer（gated、h2-sshd、natsumi-sshd、minecraft）と VIP が応答すること。
-6. `infra-admin` のトークンを破棄する（`unset ADMIN_TOKEN`）。
-7. 作業記録に、時刻（drain の開始、containerd の置き換え、再起動 2 回、uncordon）、conffile の質問とその答え、削除したパッケージ、OS / kernel / containerd の版を書く。
+5. Running / Completed 以外の Pod が、ベースラインから増えていないこと。
+6. ✋ `netcheck.sh` と `check-apps.sh`（cnidaria の手順書のスクリプト）を流す。結果がベースラインと同じであること。LoadBalancer（gated、h2-sshd、natsumi-sshd、minecraft）と VIP が応答すること。
+7. `infra-admin` のトークンを破棄する（`unset ADMIN_TOKEN`）。
+8. 作業記録に、時刻（drain の開始、containerd の置き換え、再起動 2 回、uncordon）、conffile の質問とその答え、削除したパッケージ、OS / kernel / containerd の版を書く。
 
 ### 3.9 次の 1 台へ進む条件
 
@@ -450,7 +502,8 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
 - 全 8 台の Node が Ready。更新したノードが Ubuntu 24.04.5 と `containerd://2.2.1`。
 - etcd 3/3 healthy、VIP が応答する。
 - Running / Completed 以外の Pod が、ベースラインから増えていない。
-- Longhorn のボリュームが healthy（ベースラインで healthy でないものを除く）。再構築が終わっている。
+- Longhorn のボリュームが healthy（ベースラインで healthy でないものを除く）。再構築（§3.8 の 3 で設定を戻した後の再同期を含む）が終わっている。
+- Longhorn の `concurrent-replica-rebuild-per-node-limit`、`replica-auto-balance`、`node-drain-policy` が元の値に戻っている（§2.5、§2.4）。
 - cnidaria の `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ。
 - 更新したノードが、少なくとも 30 分、再起動や NotReady なしで動いている。1 台目（chirico）の後は、1 日置くことを推奨する。
 - **ユーザーが次の 1 台へ進むことを承認した。**
@@ -462,9 +515,12 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
 `do-release-upgrade` は戻せない。どの段階で失敗したかで方針が変わる。どの場合も、その場で止めてユーザーに報告し、方針を決めてから動く。
 ノードは drain 済みなので、Pod は他のノードで動き続ける。急がずに直せる（oeilvert の MinIO と braque の NFS は止まったままになる）。
 
+**どの段階でやめる場合も、§2.5 の 2 つの設定（`concurrent-replica-rebuild-per-node-limit`、`replica-auto-balance`）を元の値に戻す** ✋。0 のままでは、クラスタ全体で replica が作り直されない。
+対象のノードがすぐに戻らない（直すのに時間がかかる、入れ直す）場合は、ノードが戻るのを待たずに戻してよい。止まった replica の代わりに、ほかのノードで replica が作り直される。どちらにするかはユーザーと決める。
+
 ### 4.1 drain まで（3.3）
 
-`kubectl-admin uncordon <ノード>` で戻す ✋。§2.4 で変えたもの（`node-drain-policy`、MinIO の StatefulSet、Prometheus の replicas）を戻す ✋。
+`kubectl-admin uncordon <ノード>` で戻す ✋。§2.4 で変えたもの（`node-drain-policy`、MinIO の StatefulSet、Prometheus の replicas）と、§2.5 の 2 つの設定を戻す ✋。
 
 ### 4.2 containerd の置き換え（3.4）で containerd か kubelet が上がらない
 
@@ -551,7 +607,7 @@ TASK.md の完了条件を確かめる。
 - Running / Completed 以外の Pod が無い（ベースラインのものは記録して区別する）
 - Longhorn のボリュームが healthy（ベースラインで healthy でないものは記録して区別する）
 - braque の NFS、MetalLB の LoadBalancer が応答する
-- `node-drain-policy` が `block-if-contains-last-replica` に戻っている。`minio/minio` の StatefulSet が 4、Prometheus リソースの `spec.replicas` が 2
+- `node-drain-policy` が `block-if-contains-last-replica`、`concurrent-replica-rebuild-per-node-limit` が `5`、`replica-auto-balance` が `least-effort` に戻っている。`minio/minio` の StatefulSet が 4、Prometheus リソースの `spec.replicas` が 2
 
 ### 6.2 片付け
 
