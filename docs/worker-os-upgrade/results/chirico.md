@@ -138,3 +138,28 @@ drain の後に残った iSCSI のセッションは、ユーザーの判断で�
 - 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。ハッシュした行は、名前が一致した最初の 1 行の鍵だけを返す。ED25519 の行は ed25519 の gem が無いので読み飛ばされ、RSA の行の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、RSA の鍵と比べて「一致しない」になる。net-ssh 単体（`Net::SSH::KnownHosts`）は RSA と ECDSA の両方を返すので、`ssh` や net-ssh だけなら通る
 - ほかのノードも同じ影響を受ける。duchamp（192.168.1.135）と 192.168.1.112、113 は sshkit で RSA だけが返る。oeilvert（.82）と pablo（.134）はハッシュした行が 1 つだけで、sshkit も net-ssh も鍵を返さない。braque（.131）と 192.168.1.111 は ECDSA が返るので通る見込み
 - `~/.ssh/known_hosts` と `known_hosts.old` の更新時刻は、どちらも 2026-10-17 06:40:20Z
+
+対処（ユーザーの判断）: 作業端末の `~/.ssh/known_hosts` に、chirico の ECDSA の鍵を、名前をハッシュしない行で 1 行足した（先に `known_hosts.bak-20261017` に控えを取った）。
+鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、fingerprint が `SHA256:qbHk+SmJyGaX5E8Nsf0xsYE1oJSd6xA89sIQKqJqYjU` であることを確かめた。sshkit はハッシュしない行を先に見るので、これで通る。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 12:32:24〜12:32:28 | 5: `setup-containerd --node chirico`（再実行） | rc 0。`ERROR` や `Unsupported containerd config version` は無い |
+| 12:32:49 | 7: `systemctl restart kubelet` | Ready,SchedulingDisabled、`containerd://2.2.1`。DaemonSet の Pod 8 つが Running |
+| 12:34:24 | 8: dns addon の修正を (b) で当てる（unit だけを置き換える） | 下の 3.4 |
+
+以降の ✋ は、ユーザーの決定（2026-10-17 12:4xZ ごろ）で、runbook のとおりに進むものは coordinator に知らせるだけで進めた。止まって判断を求めるのは、想定と違うとき、選択肢があるとき、runbook に無い操作、`do-release-upgrade`、再起動のときだけにした。
+
+### 3.3 containerd の確認（runbook §3.4 の 6）
+
+- `containerd --version` が 2.2.1。`/etc/containerd/config.toml` は `version = 3`、`sandbox = 'registry.k8s.io/pause:3.10.1'`、`[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]` の下に `SystemdCgroup = true`
+- `crictl info` が応答する（`crictl` は `/opt/bin` にあり、sudo の PATH には無い）。`crictl images` が 305 行で、イメージが引き継がれている
+- `setup-containerd` の再起動の後、journal に migrate の警告と `Ignoring unknown key` は無い。`ctr deprecations list` は空
+- DaemonSet の Pod は、containerd の置き換えでも kubelet の再起動でも再起動しなかった（restart の数が変わらない）。`containerd.io` 1.6.8 の `containerd-shim-runc-v2` のプロセス 8 つが動き続けていて、新しい containerd がそれに繋ぎ直した。dev では Pod が 1 回ずつ再起動したので、ここは dev と違う。shim は §3.4 の 9 の再起動で入れ替わる
+
+### 3.4 dns addon の修正（runbook §3.4 の 8、(b)）
+
+- unit は、このリポジトリの `assets/kubelet-default/addons/dns/install.sh` の quoted heredoc を `sed` で取り出して使った。oeilvert の今の unit と 1 文字も違わないことを `diff` で確かめた
+- 元の unit は `/root/cluster-dns.service.bak-20261017` に写した。`daemon-reload`、`reenable`、`restart` を流した
+- `reenable` は `Unit ... is added as a dependency to a non-existent unit sys-subsystem-net-devices-porka\x2ddummy01.device` と警告した。device unit はディスク上の unit ファイルが無いので `systemctl enable` がそう言うだけで、実際には `loaded active plugged`（`/sys/subsystem/net/devices/porka-dummy01`）である。oeilvert でも同じ状態で `cluster-dns` は active
+- `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は 7 本のまま
