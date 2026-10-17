@@ -286,6 +286,9 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
 6. ✋ chirico、duchamp、oeilvert では、Longhorn の `node-drain-policy` を `allow-if-replica-is-stopped` にする（§2.4）。
 7. ✋ oeilvert では、`minio/minio` の StatefulSet を 0 にし、4 つの MinIO のボリュームが detach されるのを待つ（§2.4）。
 8. ✋ `kubectl-admin drain <ノード> --ignore-daemonsets --delete-emptydir-data`。
+   - コントローラを持たない Pod（ownerReferences が無いもの）があると、drain は `--force` が無ければ止まる。drain の前に `kubectl --context fraction get pods -A --field-selector spec.nodeName=<ノード> -o json | jq -r '.items[] | select((.metadata.ownerReferences // []) | length == 0) | .metadata.namespace + "/" + .metadata.name'` で探す。
+     見つかったら、消してよいかをユーザーに確かめ、よければ `--force` を足して drain する（その Pod は消え、作り直されない）。
+     chirico には `default/dnsutils` と `tracing/dnsutils`（テスト用の agnhost）があり、ユーザーの判断で `--force` を付けて消すことにした（2026-10-17）。
    - 止まったら、出力と `kubectl --context fraction get pdb -A` を見る。Longhorn の instance-manager の PDB で止まっているなら、§2.4 の「注意」に従う（変更するなら ✋）。
    - MinIO の PDB（maxUnavailable 1）で止まるなら、他のノードの MinIO の Pod が Ready になるのを待つ。
 9. drain の後、対象のノードの Longhorn のボリュームがすべて detach されたこと（または他のノードへ移ったこと）を確かめる。
