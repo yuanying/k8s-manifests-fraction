@@ -86,3 +86,48 @@ runbook §2.1.1 の一覧のほかに、`fs/data-restore`、`fs/h2-restore`、`f
 - porkadot の checkout（4fa3a0f）で `SSHKit::Backend::Netssh::KnownHosts.new.search_for("192.168.1.131", {})` は `ecdsa-sha2-nistp256` を返した
 - その鍵の fingerprint `SHA256:tTvaJA2uUeg3/Cw5r9/DQNUVBJmmVb7cLHf8bZqQdGU` は、ノードの `/etc/ssh/ssh_host_ecdsa_key.pub` と同じ
 - 対処は要らない（known_hosts は変えていない）
+
+## 2. cordon と drain（runbook §3.3）
+
+23:37Z にユーザーがコンソールを用意し、23:3xZ に §3.3 の braque の事前確認（`registry.fraction.jp` のイメージを使うデプロイをしない、`fs/*-restore` はそのままにする、nfsd のイメージを控える）に答えた。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 23:37:59 | ✋ `infra-admin` のトークンを発行（3h） | 作業端末の 600 のファイルに置いた。`auth can-i patch nodes` が yes |
+| 23:38:07 | ✋ `cordon braque` | Ready,SchedulingDisabled |
+| 23:38:07 | ✋ `concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled`（§2.5） | 直前の値は `5`、`least-effort`。読み直して変わり、APPLIED true。braque には replica が無いので `node-drain-policy` は変えていない（§2.4） |
+| 23:38:10 | ✋ `drain braque --ignore-daemonsets --delete-emptydir-data --timeout=20m` | 同じ秒に `node/braque drained`（rc 0）。DaemonSet の Pod（cnidaria、kube-proxy、node-exporter、smart-exporter、nfsd）だけなので、動いた Pod は無い。コントローラを持たない Pod は無い |
+
+## 3. 22.04 のまま containerd を置き換える（runbook §3.4）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 23:38:19 | ✋ 0: `/root` で `apt-get download containerd.io=1.6.8-1` | sha256 `74ce6b6b440073b6…`（chirico、duchamp と同じ） |
+| 23:38:2x | ✋ nfsd のイメージを控える（runbook に無い。ユーザーが承認）: `ctr -n k8s.io images export /root/volume-nfs-0.8.tar gcr.io/google_containers/volume-nfs:0.8` | 87MB。消えたときは `ctr -n k8s.io images import` で戻す |
+| 23:38:30 | ✋ 1: `docker.list` を `docker.list.disabled-20261017` に名前を変え、`apt-get update` | `containerd.io` の候補は 1.6.8-1、`containerd` の候補は 2.2.1-0ubuntu1~22.04.2 |
+| 23:39:25〜23:45:1x | ✋ 2: `apt-get full-upgrade` | rc 0。109 upgraded、8 newly installed、0 removed、0 not upgraded（下の 3.1） |
+| 23:45:26 | ✋ 3: `apt-get install containerd` | 先に `-s` で、消えるのが `containerd.io` だけであることを確かめた。`containerd` 2.2.1-0ubuntu1~22.04.2 と `runc` 1.3.4-0ubuntu1~22.04.1 が入り、`containerd.io` は `rc` |
+| 23:45:4x | 4: `config.toml` を `config.toml.porkadot-bak.20261017` に名前を変える | `containerd config default` は `version = 3` |
+| 23:45:53〜23:45:56 | ✋ 5: `porkadot setup-containerd --config ./porkadot.yaml --node braque`（porkadot 4fa3a0f、asset はこのブランチの base 4a30bb2） | rc 0。`ERROR`、`Unsupported containerd config version`、`HostKeyMismatch` は無い |
+| 23:46:03 | ✋ 7: `systemctl restart kubelet` | Ready,SchedulingDisabled、`containerd://2.2.1`、OS-IMAGE は `Ubuntu 22.04.5 LTS`。DaemonSet の Pod 5 つが Running（restart 0） |
+| 23:46:38 | ✋ 8: dns addon の修正を (b) で当てる | 下の 3.3 |
+
+### 3.1 full-upgrade
+
+- duchamp、oeilvert と同じく非対話で流した: `systemd-run --unit=full-upgrade-20261017` の中で、`DEBIAN_FRONTEND=noninteractive`、`UCF_FORCE_CONFFOLD=1`、dpkg の `--force-confdef --force-confold`。ログはノードの `/root/full-upgrade-20261017.log`
+- 先に `apt-get -s full-upgrade` で、削除されるものが無いことを確かめた。kernel（5.15.0-198 は入っている）、ZFS、systemd は更新に含まれていなかった。multipath-tools は 0.8.8-1ubuntu1.22.04.4 に上がった
+- conffile: `/etc` の `*.dpkg-*` と `*.ucf-*` は前後で変わらなかった（前からあるのは `ca-certificates.conf.dpkg-old`、`containerd/config.toml.dpkg-dist`、`default/grub.ucf-dist`、`ssh/sshd_config.ucf-dist`）。fwupd などの使われなくなった conffile は消された
+- 終わった後: `/var/run/reboot-required` あり（前から）。cnidaria の経路（proto 200）は v4・v6 とも 7 本。kubelet、containerd、multipathd は active。`sudo -n true` が通る。nftables は 1.0.2-1ubuntu3.1、systemd は 249.11-0ubuntu3.23 のまま
+
+### 3.2 containerd の確認（runbook §3.4 の 6・7）
+
+- `containerd --version` が 2.2.1。`/etc/containerd/config.toml` は `version = 3`、`sandbox = 'registry.k8s.io/pause:3.10.1'`、`[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]` の下に `SystemdCgroup = true`
+- `sudo /opt/bin/crictl info` が応答する。`crictl images` は 27 個で、nfsd の `volume-nfs:0.8` も残っている
+- `setup-containerd` で再起動した後（23:45:55 以降）の containerd の journal に、migrate の警告と `Ignoring unknown key` は無い（その前、古い config で起動した 23:45:40 の分にはあった）。`ctr deprecations list` は空
+- DaemonSet の Pod は、containerd の置き換えでも kubelet の再起動でも再起動しなかった（ほかの 3 台と同じ）
+
+### 3.3 dns addon の修正（runbook §3.4 の 8、(b)）
+
+- unit は、このブランチの `assets/kubelet-default/addons/dns/install.sh` の quoted heredoc を `sed` で取り出して使った。oeilvert の今の unit と 1 文字も違わないことを `diff` で確かめた
+- 元の unit は `/root/cluster-dns.service.bak-20261017` に写した。`daemon-reload`、`reenable`、`restart` を流した。`reenable` は ほかのノードと同じ `non-existent unit` の警告を出した（害はない）
+- `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は v4・v6 とも 7 本のまま
