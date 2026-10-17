@@ -49,7 +49,7 @@ Longhorn の設定（変える前の値）:
 | uptime | 280 日 |
 | ディスク | `/`（`/dev/sda2`）は 109G で空き 88G |
 | メモリ | 15G |
-| ZFS | `tank1`（raidz1、7.3T×3）は ONLINE、2026-10-11 の scrub はエラー 0。vdev は `/dev/disk/by-partlabel/zfs-tank1-{0,1,2}`。`tank1/export` を `/export`（5.1T 使用、9.4T 空き）。`zfs-import-cache`、`zfs-mount`、`zfs.target`、`zfs-zed` は enabled（`zfs-import-scan` は disabled）。`zfsutils-linux` 2.1.5-1ubuntu6~22.04.7 |
+| ZFS | `tank1`（raidz1、7.3T×3）は ONLINE、2026-10-11 の scrub はエラー 0。vdev は `/dev/disk/by-partlabel/zfs-tank1-{0,1,2}`。`tank1/export` を `/export`（5.1T 使用、9.4T 空き）。**`zfs-import-cache` は disabled**、`zfs-import-scan`、`zfs-mount`、`zfs.target`、`zfs-zed` は enabled（この読み取りの時点では見落とした。§3.4 を参照）。`zfsutils-linux` 2.1.5-1ubuntu6~22.04.7 |
 | NFS サーバー | ホストには `nfs-kernel-server` が無い。DaemonSet `nfsd/nfsd`（`gcr.io/google_containers/volume-nfs:0.8`、hostNetwork、privileged、`/export` を hostPath）。ホストで `nfsd` と `lockd` のモジュールが読み込まれている |
 | sshd_config | 末尾に `PasswordAuthentication no`（chirico、duchamp と同じ） |
 | `irqbalance` | 1.8.0-1build1 |
@@ -131,3 +131,29 @@ runbook §2.1.1 の一覧のほかに、`fs/data-restore`、`fs/h2-restore`、`f
 - unit は、このブランチの `assets/kubelet-default/addons/dns/install.sh` の quoted heredoc を `sed` で取り出して使った。oeilvert の今の unit と 1 文字も違わないことを `diff` で確かめた
 - 元の unit は `/root/cluster-dns.service.bak-20261017` に写した。`daemon-reload`、`reenable`、`restart` を流した。`reenable` は ほかのノードと同じ `non-existent unit` の警告を出した（害はない）
 - `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は v4・v6 とも 7 本のまま
+
+### 3.4 22.04 の再起動（runbook §3.4 の 9・10）と ZFS の取り込み漏れ
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 23:47:40 | 9: `systemctl reboot`（ユーザーがコンソールをつないでから承認） | journal は 23:47:45 に止まった。kernel の起動は 23:48:14（`uptime -s`）。23:50:34 に SSH が上がり、Ready |
+| 23:50:4x | 10: 確認 | **ZFS の `tank1` が取り込まれず、`/export` がマウントされていなかった**（下）。ほかは問題なし |
+| 23:53:04 | ✋ `zpool import tank1`（runbook に無い。ユーザーが承認） | rc 0。`all pools are healthy`、`tank1/export` が `/export` にマウントされ、データがある |
+| 23:53:10 | ✋ nfsd の Pod（`nfsd/nfsd-mg9pv`）を消す（runbook に無い。ユーザーが承認） | 23:53:17 に新しい Pod（`nfsd-wxsnb`）が Running。コンテナの `/exports` は `tank1/export` |
+| 23:53:1x | ✋ `systemctl enable zfs-import-cache.service`（runbook に無い。ユーザーが承認） | enabled |
+| 23:54:01 | NFS を使う Pod の回復を確かめる | Running / Completed 以外の Pod は 0 個。`registry.fraction.jp/v2/` は 401（認証が要るという応答で、正常） |
+
+- **止めてから kernel が起動するまで約 30 秒**（chirico 約 5 分、duchamp 約 17 分、oeilvert 約 2 分）。ただし起動は 2 分 43 秒かかった（firmware 10.9s、loader 10.6s、kernel 7.3s、userspace 2min 14.7s）。userspace のほとんどは `systemd-networkd-wait-online.service`（2 分で時間切れで failed。更新前からの失敗。調査 §2.1）
+- 起動の後: kernel 5.15.0-198-generic、`containerd://2.2.1`、config は `version = 3` のまま。containerd の journal に migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。DaemonSet の Pod 5 つが Running（restart が 1 回ずつ増えた）。Pending の CSR は無い
+- runbook §3.7 の 8〜13: iSCSI のセッションは無い。multipathd と `iscsid.socket` は active。`sudo -n true` が通る。`cluster-dns` は active で `porka-dummy01` に 10.254.0.10 と検索ドメイン。`systemctl --failed` は `systemd-networkd-wait-online.service` だけ（更新前から。`fwupd-refresh` は消えた）。`ordering cycle` は 0。cnidaria の経路は v4・v6 とも 7 本。`/var/run/reboot-required` は無い
+
+#### ZFS の取り込み漏れ
+
+- 原因は更新前からの設定である。`zfs-import-cache.service` が **disabled** で、`zfs-import-scan.service` は enabled だが `ConditionFileNotEmpty=!/etc/zfs/zpool.cache`（cache file があると動かない）で飛ばされた。起動時に pool を取り込む unit が無かった。`zfs-mount.service` は走ったが、pool が無いので何もマウントしなかった
+- 前の起動（2026-01-10）でも同じだったと見られる。その journal には、起動の 3 分後に手で `sudo zpool import -a` を流した記録がある
+- vdev は partlabel（`/dev/disk/by-partlabel/zfs-tank1-*`）なので、起動で `sd*` の名前が変わっても（`zfs-tank1-0` が sdd1 → sdb1）影響は無い。`zpool import` は `tank1` を ONLINE で取り込めると示した
+- **その間、nfsd の Pod は root のディスクの空の `/export` を公開していた**（hostPath の `/export`。中身は nfsd が起動時に書く `index.html` だけ）。braque の NFS は 23:47:40〜23:53:17 の間、止まっているか、別のディレクトリを見せていた
+  - nfsd の Pod は、`/export` を取り込みの前にバインドしているので、取り込んだ後も古いディレクトリを見続ける。そのため Pod を消して作り直させた
+  - 下に隠れた root のディスクの `/export/index.html` は残っている（害は無いので消していない）
+- NFS を使う Pod への影響: `carib2`、`pondo2`、`shja2` の movies は liveness probe で再起動して CrashLoopBackOff に、`docker/registry`（pablo）は `stale NFS file handle` でコンテナを作れず CrashLoopBackOff になった。どれも作り直した nfsd の Pod が上がった後、手を加えずに Running に戻った（23:54:01 に 0 個）。oeilvert のホストの `shared/nfs` と `fs/*-restore` の 3 つは読めた
+- `zfs-import-cache.service` を enable したので、24.04 の再起動（§3.5 の 4）では起動時に取り込まれる見込み
