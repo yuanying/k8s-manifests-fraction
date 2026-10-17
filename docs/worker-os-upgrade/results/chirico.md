@@ -127,3 +127,14 @@ drain の後に残った iSCSI のセッションは、ユーザーの判断で�
 - 主な版: nftables 1.0.2-1ubuntu3.1、multipath-tools 0.8.8-1ubuntu1.22.04.4。kernel は 5.15.0-198 が入っていた（変わらず）
 - initramfs の作成で `Possible missing firmware /lib/firmware/amdgpu/...` の警告が出た。chirico の GPU は Renoir で、警告に出たのは別の chip（yellow_carp、cyan_skillfish、navi10 など）の firmware なので、関係ない
 - 終わった後: `/var/run/reboot-required` あり。cnidaria の経路（proto 200）は v4・v6 とも 7 本。kubelet、containerd、multipathd、iscsid は active。ノードは Ready のまま
+| 12:27:13 | 4: `config.toml` を `config.toml.porkadot-bak.20261017` に名前を変える | `containerd config default` は `version = 3` |
+| 12:27:54 | 5: `porkadot setup-containerd --config ./porkadot.yaml --node chirico`（porkadot 4fa3a0f、0.29.2。asset は master と同じ worktree から） | **SSH の接続で失敗**（rc 1、ノードには何もしていない）。下の 3.2 |
+
+### 3.2 porkadot（SSHKit）が chirico のホスト鍵を「一致しない」と言う
+
+`Net::SSH::HostKeyMismatch: fingerprint SHA256:qbHk+SmJyGaX5E8Nsf0xsYE1oJSd6xA89sIQKqJqYjU does not match for "192.168.1.83"`
+
+- chirico のホスト鍵は変わっていない（`/etc/ssh/ssh_host_*_key.pub` は 2022-09-27 のまま）。作業端末の `~/.ssh/known_hosts` には chirico の ED25519、RSA、ECDSA が 1 行ずつ、**ハッシュした名前で別々の行に**あり、どれもノードの鍵と一致する
+- 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。ハッシュした行は、名前が一致した最初の 1 行の鍵だけを返す。ED25519 の行は ed25519 の gem が無いので読み飛ばされ、RSA の行の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、RSA の鍵と比べて「一致しない」になる。net-ssh 単体（`Net::SSH::KnownHosts`）は RSA と ECDSA の両方を返すので、`ssh` や net-ssh だけなら通る
+- ほかのノードも同じ影響を受ける。duchamp（192.168.1.135）と 192.168.1.112、113 は sshkit で RSA だけが返る。oeilvert（.82）と pablo（.134）はハッシュした行が 1 つだけで、sshkit も net-ssh も鍵を返さない。braque（.131）と 192.168.1.111 は ECDSA が返るので通る見込み
+- `~/.ssh/known_hosts` と `known_hosts.old` の更新時刻は、どちらも 2026-10-17 06:40:20Z
