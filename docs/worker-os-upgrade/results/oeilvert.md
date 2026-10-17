@@ -158,7 +158,7 @@ porkadot を流す前に対処した。
 - `docker version` は client、server とも 29.1.3。`docker info` の Storage Driver は overlay2、Docker Root Dir は `/var/lib/docker`、Cgroup Driver は systemd
 - イメージは `docker info` で 1212 個（前と同じ）。タグの付いたイメージは前の 199 個がすべて残っている。**`docker images` の行数は 590 から 202 に減ったが、これは Docker 29 の `docker images` がタグの無いイメージを既定で出さなくなったため**で、`docker images -a` は 1212 個を数える。devbox のイメージ（`registry.fraction.jp/yuanying/devbox-amd64:latest`、7a85bdaa2d28）は残っている
 - ボリューム（名前の無い 1 つ）は残っている。`bridge` のネットワークは IPv6 が有効で、`fde0:17ad:84c5:82::/64`（daemon.json が読まれている）
-- devbox: `systemctl start devbox` で起動し、ポート 3222、8080、9090（v4・v6）と 60000〜60010/udp が開いた。作業端末から port 3222 に SSH で入れた。`mosh.fraction.jp` での確認は、ユーザーが 24.04 の後に行う
+- devbox: `systemctl start devbox` で起動し、ポート 3222、8080、9090（v4・v6）と 60000〜60010/udp が開いた。作業端末から port 3222 に SSH で入れた。`mosh.fraction.jp` での確認は、ユーザーが 24.04 の後に行った（§5）
 - **iptables の FORWARD の順番が変わった。** Docker 29 は FORWARD の先頭に `DOCKER-USER` と `DOCKER-FORWARD` へのジャンプを入れ、`CNIDARIA-FWD` は 3 番目になった（v4・v6 とも）。policy は ACCEPT のまま。`DOCKER-USER` は `RETURN` だけで、`DOCKER-FORWARD` は docker のブリッジ向けの通信だけを扱うので、Pod の通信には影響しない見込み。更新前（Docker 20.10）は `CNIDARIA-FWD` が先頭だった
 
 ### 3.5 22.04 の再起動（runbook §3.4 の 9・10）
@@ -280,6 +280,7 @@ oeilvert の追加の確認:
 - `home-yuanying-shared-data.automount`、`-h.automount`、`home-yuanying-shared-nfs.mount` は active
 - `/etc/systemd/resolved.conf` は手元の版のまま
 - `docker`、`devbox`、`netfilter-persistent` は active。`docker ps` に devbox がある
+- 23:2x: ユーザーが `mosh.fraction.jp` に SSH（3222）と mosh で入れることを確かめた
 - unattended-upgrades の自動再起動（`52local-reboot.conf`、04:00）は残っている。`/var/run/reboot-required` は無い
 
 ## 6. uncordon と後始末（runbook §3.8）
@@ -314,7 +315,7 @@ oeilvert の追加の確認:
 | `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ | 満たす（64 PASS、168/168、差は hedgedoc の Pod の置き場所だけ） |
 | Longhorn の設定と MinIO が元に戻っている | 満たす（`5`、`least-effort`、`block-if-contains-last-replica`、MinIO 4/4） |
 | LoadBalancer | TCP のものはすべて応答（gated v4/v6 の 80・443、h2-sshd、natsumi-sshd の 3 つ、VIP の 6443）。minecraft は UDP なので確かめていない |
-| oeilvert の確認（runbook §3.7） | devbox、Docker、iptables は満たす。`mosh.fraction.jp` での SSH と mosh はユーザーが確かめる |
+| oeilvert の確認（runbook §3.7） | 満たす（devbox、Docker、iptables。`mosh.fraction.jp` での SSH と mosh はユーザーが確かめた） |
 | 30 分の様子見 | この記録の時点では 24.04 で起動してから約 11 分 |
 
 ## 8. runbook を直した点
