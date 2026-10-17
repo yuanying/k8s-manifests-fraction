@@ -59,6 +59,9 @@ bootstrap:
       hostname: 192.168.1.134
 
 addons:
+  enabled: [cnidaria, coredns, metallb, kubelet-serving-cert-approver]
+  cnidaria:
+    network_name: cbr0
   metallb:
     config: |
       ---
@@ -78,13 +81,6 @@ addons:
       metadata:
         name: system
         namespace: metallb-system
-  flannel:
-    backend: host-gw
-    resources:
-      requests:
-        cpu: "200m"
-      limits:
-        cpu: "200m"
 
 connection:
   user: yuanying

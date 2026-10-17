@@ -1,0 +1,163 @@
+# Based on deploy/ of github.com/yuanying/cnidaria-cni. The NodeNetworkPolicy CRD is
+# rendered separately into manifests/crds/cnidaria/crds.yaml.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnidaria
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cnidaria
+---
+# The daemon reads what it renders and writes back only NodeNetworkPolicy status and
+# one annotation on its own Node.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnidaria
+  labels:
+    app.kubernetes.io/name: cnidaria
+rules:
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [get, list, watch, patch]
+- apiGroups: [""]
+  resources: [pods, namespaces]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [networkpolicies]
+  verbs: [get, list, watch]
+- apiGroups: [cnidaria.unstable.cloud]
+  resources: [nodenetworkpolicies]
+  verbs: [get, list, watch]
+- apiGroups: [cnidaria.unstable.cloud]
+  resources: [nodenetworkpolicies/status]
+  verbs: [update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cnidaria
+  labels:
+    app.kubernetes.io/name: cnidaria
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cnidaria
+subjects:
+- kind: ServiceAccount
+  name: cnidaria
+  namespace: kube-system
+---
+# One daemon per node in the host's network namespace. It writes the CNI conflist,
+# keeps the host-gw routes and applies the nftables table. Pod CIDRs are read from
+# node.spec.podCIDRs, so nothing here depends on kubernetes.networking.pod_subnet.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cnidaria
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cnidaria
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cnidaria
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cnidaria
+    spec:
+      hostNetwork: true
+      # The pod network depends on this daemon, so it has to run on every node,
+      # whatever taints the node carries. A node without a CNI config is NotReady
+      # and tainted node.kubernetes.io/not-ready:NoSchedule; not tolerating that
+      # leaves the node waiting for a daemon that can never be scheduled.
+      tolerations:
+      - operator: Exists
+      priorityClassName: system-node-critical
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: cnidaria
+      initContainers:
+      # cnidaria has no CNI binary of its own. The reference plugins its conflist
+      # names are copied out of the image, each through a temporary name so that a
+      # running plugin is replaced rather than written over.
+      - name: install-cni-plugins
+        image: ghcr.io/yuanying/cnidaria-cni:v0.1.0
+        command: [sh, -c]
+        args:
+        - |
+          set -eu
+          for p in bridge host-local portmap; do
+            cp -f "/opt/cni/bin/$p" "/host/opt/cni/bin/.$p.tmp"
+            chmod 0755 "/host/opt/cni/bin/.$p.tmp"
+            mv -f "/host/opt/cni/bin/.$p.tmp" "/host/opt/cni/bin/$p"
+          done
+        securityContext:
+          privileged: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: cni-bin
+          mountPath: /host/opt/cni/bin
+      containers:
+      - name: cnidaria
+        image: ghcr.io/yuanying/cnidaria-cni:v0.1.0
+        args:
+        - --proc-sys=/host/proc/sys
+        - --network-name=cbr0
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: false
+          capabilities:
+            drop: [ALL]
+            add: [NET_ADMIN, NET_RAW]
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            host: 127.0.0.1
+            port: 19080
+            path: /healthz
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            host: 127.0.0.1
+            port: 19080
+            path: /readyz
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        volumeMounts:
+        - name: cni-conf
+          mountPath: /etc/cni/net.d
+        - name: proc-sys-net
+          mountPath: /host/proc/sys/net
+        - name: xtables-lock
+          mountPath: /run/xtables.lock
+      volumes:
+      - name: cni-conf
+        hostPath:
+          path: /etc/cni/net.d
+          type: DirectoryOrCreate
+      - name: cni-bin
+        hostPath:
+          path: /opt/cni/bin
+          type: DirectoryOrCreate
+      - name: proc-sys-net
+        hostPath:
+          path: /proc/sys/net
+          type: Directory
+      - name: xtables-lock
+        hostPath:
+          path: /run/xtables.lock
+          type: FileOrCreate
