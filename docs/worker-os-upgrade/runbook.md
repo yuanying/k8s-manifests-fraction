@@ -17,7 +17,8 @@
 
 dev で確かめていないものは次のとおり。**本番の 1 台目（chirico）では、ここを特に注意して見る。**
 
-- `do-release-upgrade` の対話モード（SSH 越しの予備の sshd と `screen`、conffile の質問）。dev は非対話（`DistUpgradeViewNonInteractive`、`systemd-run` の unit）で流した。dev のノードには、conffile の質問が出るファイルが無かった
+- `do-release-upgrade` の対話モード（SSH 越しの予備の sshd と `screen`、conffile の質問）。dev は非対話（`DistUpgradeViewNonInteractive`、`systemd-run` の unit）で流した。dev のノードには、conffile の質問が出るファイルが無かった。
+  chirico で対話モードを通し（`results/chirico.md` §4）、2 台目からは非対話で流すことにした（§3.5）
 - Longhorn、NFS、iSCSI を持つノード（chirico、duchamp、pablo、oeilvert、braque）。ZFS（braque、oeilvert）
 - docker-ce から `docker.io` への移行（oeilvert。§3.4.1）
 
@@ -48,13 +49,13 @@ dev で確かめていないものは次のとおり。**本番の 1 台目（ch
 `porkadot-dev/CLAUDE.md` の「本番クラスタ（fraction）の kubeconfig 運用」に従う。
 
 - 確認は `kubectl --context fraction`（`fraction-auditor`、read-only）で行う。作業を始める前に `kubectl --context fraction auth can-i delete pods -A` が `no` であることを確かめる。
-- 変更（cordon、drain、uncordon、Longhorn の設定）は `infra-admin` の短命トークンで行う。1 台ごとに 2〜3 時間の期限で発行し、終わったら破棄する。
+- 変更（cordon、drain、uncordon、Longhorn の設定）は `infra-admin` の短命トークンで行う。1 台ごとに 2〜3 時間の期限で発行し、終わったら破棄する。chirico では cordon から uncordon まで約 3 時間かかり、3 時間のトークンが切れる前に発行し直した。途中で切れそうなら、§3.8 の前に発行し直す。
   以下、変更系のコマンドを `kubectl-admin` と書く（`kubectl --context fraction --token="$ADMIN_TOKEN"` のこと）。
 
 ### 1.3 作業端末とアクセス
 
 - 5 台とも `ssh yuanying@<IP>` で入れて、パスワードなしで sudo できること（`porkadot.yaml` の `connection.user` は全体で `yuanying`）。
-- `do-release-upgrade` は SSH 越しに行う（§3.5）。SSH が切れたときのために、ノードごとにコンソール（モニターとキーボード）で入れるかをユーザーに確認しておく。
+- `do-release-upgrade` は SSH 越しに、systemd の unit の中で非対話で流す（§3.5）。途中で新しい SSH の接続が 8 分ほどできなくなる。上がってこないときのために、ノードごとにコンソール（モニターとキーボード）で入れるかをユーザーに確認しておく。
 
 ### 1.4 cnidaria の手順書のスクリプト
 
@@ -176,19 +177,22 @@ replica 1 のボリュームは止まってよい（§2.1 の 2）ので、repli
 
 1. **chirico、duchamp、oeilvert の drain の間だけ、`node-drain-policy` を `allow-if-replica-is-stopped` にする** ✋。drain と再起動が終わり、uncordon した後に `block-if-contains-last-replica` に戻す ✋（§3.8）。
 2. **oeilvert では、drain の前に MinIO の StatefulSet を 0 にする** ✋。終わったら元の数（4）に戻す ✋（§3.8）。
+3. **chirico、duchamp では、drain の前に Prometheus リソース（`monitoring/kube-prometheus`）の `spec.replicas` を 0 にする** ✋。uncordon の後に 2 に戻す ✋（§3.8）。prometheus は 2 台とも止まるが、止まってよい（§2.1 の 2）。
 
 この形にした理由:
 
 - `allow-if-replica-is-stopped` は、最後の replica が**止まっている**ときだけ drain を通す。drain で Pod が退いてボリュームが detach されると replica が止まるので、drain が進む。replica が動いている（データの書き込みが続いている）ボリュームは引き続き止めてくれる。
   `always-allow` は動いている replica があっても通すので、書き込み中の replica を止めて faulted にしうる。使わない
 - 止まった replica のデータはそのノードのディスクに残り、ノードが戻ればそのまま使える。`replica-replenishment-wait-interval` が 6000 秒なので、100 分以内に戻れば、Longhorn は別のノードで作り直さずに元の replica を使う。この手順では、作業中は再構築そのものを止める（§2.5）ので、100 分を過ぎても作業中には作り直されない
-- prometheus のボリュームは、使う Pod と replica が同じノードにある（prometheus-0 と chirico、prometheus-1 と duchamp）。drain で Pod が退けば detach されて replica が止まるので、ポリシーの変更だけで通る。prometheus は operator が管理しているので、手で replica 数を変えない
+- prometheus のボリュームは、使う Pod と replica が同じノードにある（prometheus-0 と chirico、prometheus-1 と duchamp）。しかし drain で Pod が退くと、StatefulSet がすぐに別のノードで作り直し、同じボリュームをそこでアタッチする。replica は対象のノードにしか無いので、replica が動いたままになり、drain が止まる。
+  chirico ではこのとおりになった（`results/chirico.md` §2.1。longhorn-manager は `removing chirico PDB is blocked: replica ... has no pdb on another node` と出した）。Prometheus を 0 にすると、10 秒ほどで detach されて replica が止まり、drain が通った。
+  StatefulSet を 1 にすると消えるのは番号の大きい prometheus-1 なので、どちらのノードでも 0 にする。変えるのは operator が見ている Prometheus リソースのほうで、StatefulSet を直接変えない
+  2 に戻すのは、対象のノードが戻った後にする。先に戻すと、対象のノードの replica を使えずにアタッチできない
 - MinIO の 4 つのボリュームは、replica が oeilvert にあり、Pod は別のノード（調査の時点では pablo、duchamp、chirico）でアタッチしている。oeilvert を drain しても、それらの Pod は退かないので、replica は動き続け、ポリシーを変えても drain が止まる。
   MinIO を止めてボリュームを detach させてから drain する。止める方法は、Pod を個別に消す（StatefulSet が作り直してアタッチし直す）より、StatefulSet を 0 にするほうが確実である
 - 個別の Pod を消して進める形は、Pod がすぐ作り直されてアタッチし直すので取らない
 
-注意: prometheus の Pod は、drain で退いた後に別のノードで作り直され、同じボリュームをアタッチしようとする。cordon 中のノードの replica がまた動き出し、drain が止まる可能性がある（本番でしか確かめられない）。
-そうなったら、Prometheus リソース（`monitoring` namespace）の `spec.replicas` を一時的に 0 にする ✋。prometheus は 2 台とも止まるが、止まってよい（§2.1 の 2）。終わったら 2 に戻す ✋。
+注意: 上の 3 は、chirico で drain が止まったこと（この節の初めの版では「止まったら 0 にする」としていた）を受けて、drain の前に行う手順にした。
 
 drain を始める前に、対象のノードの replica の配置をもう一度見る。replica 1 のボリュームで、replica が対象のノードにあり、Pod が別のノードにあるものが §2.4 の表のほかにあれば、それを使う workload も同じように止めるかをユーザーに確かめる。
 drain が止まったら、`kubectl --context fraction get pdb -n longhorn-system` と drain の出力を見て、どのボリュームで止まっているかを調べる。
@@ -285,14 +289,17 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
    - 変えた後に値を読み直し、`0` と `disabled` になっていること（APPLIED が true）を確かめる。
 6. ✋ chirico、duchamp、oeilvert では、Longhorn の `node-drain-policy` を `allow-if-replica-is-stopped` にする（§2.4）。
 7. ✋ oeilvert では、`minio/minio` の StatefulSet を 0 にし、4 つの MinIO のボリュームが detach されるのを待つ（§2.4）。
-8. ✋ `kubectl-admin drain <ノード> --ignore-daemonsets --delete-emptydir-data`。
+   chirico、duchamp では、Prometheus リソース `monitoring/kube-prometheus` の `spec.replicas` を 0 にし、対象のノードの prometheus のボリュームが detach され、replica が stopped になるのを待つ（§2.4 の 3）。
+8. ✋ `kubectl-admin drain <ノード> --ignore-daemonsets --delete-emptydir-data --timeout=20m`。
    - コントローラを持たない Pod（ownerReferences が無いもの）があると、drain は `--force` が無ければ止まる。drain の前に `kubectl --context fraction get pods -A --field-selector spec.nodeName=<ノード> -o json | jq -r '.items[] | select((.metadata.ownerReferences // []) | length == 0) | .metadata.namespace + "/" + .metadata.name'` で探す。
      見つかったら、消してよいかをユーザーに確かめ、よければ `--force` を足して drain する（その Pod は消え、作り直されない）。
      chirico には `default/dnsutils` と `tracing/dnsutils`（テスト用の agnhost）があり、ユーザーの判断で `--force` を付けて消すことにした（2026-10-17）。
-   - 止まったら、出力と `kubectl --context fraction get pdb -A` を見る。Longhorn の instance-manager の PDB で止まっているなら、§2.4 の「注意」に従う（変更するなら ✋）。
+   - `--timeout=20m` を付けて、止まったまま待ち続けないようにする。時間切れでも cordon は残り、退いた Pod は戻らない。原因を直してから同じ drain を流し直す
+   - 止まったら、出力と `kubectl --context fraction get pdb -A` を見る。Longhorn の instance-manager の PDB で止まっているなら、longhorn-manager のログ（`removing <ノード> PDB is blocked: replica ...`）でどの replica かを調べ、そのボリュームを使う workload を止めるかをユーザーに確かめる（変更するなら ✋）。
    - MinIO の PDB（maxUnavailable 1）で止まるなら、他のノードの MinIO の Pod が Ready になるのを待つ。
 9. drain の後、対象のノードの Longhorn のボリュームがすべて detach されたこと（または他のノードへ移ったこと）を確かめる。
-   - 対象のノードの replica の代わりに、新しい replica がほかのノードに作られていないこと（§2.5 の設定が効いていること）。iSCSI のセッション（`sudo iscsiadm -m session`）が残っていないこと。
+   - 対象のノードの replica の代わりに、新しい replica がほかのノードに作られていないこと（§2.5 の設定が効いていること）。iSCSI のセッション（`sudo iscsiadm -m session`）を見る。
+   - chirico では、退いた instance-manager へのセッションが 7 つ（`TRANSPORT WAIT` / `REOPEN`）残った。そのうち 5 つは drain の前からあった古いものだった。マウントされていなければ、そのまま進めて §3.4 の 9 の再起動で片付けてよい（chirico では再起動で消えた。§5.3）
 
 ノードごとの追加の作業:
 
@@ -333,13 +340,15 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
      4 が出たら、Docker の containerd が入っている。**流さずに止める**（porkadot 0.29.1 は version 4 に対応していない。§5.1）。
    - config が無いので `containerd config default` で version 3 の config が作られ、`SystemdCgroup = true` が入り、containerd が再起動する。
    - 出力に `ERROR` や `Unsupported containerd config version` が無いことを確かめる（終了コードは当てにならない）。
+   - `Net::SSH::HostKeyMismatch`（`fingerprint ... does not match`）で接続できないときは、§5.7 の known_hosts の問題である。§5.7 の対処をしてから流し直す。**duchamp、oeilvert、pablo は当たる見込みなので、流す前に対処しておく**
 6. ノードで確かめる。
    - `containerd --version` が `2.2.1`
    - `/etc/containerd/config.toml` の先頭が **`version = 3`**（2 や 4 ではない）、`[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]` の下に `SystemdCgroup = true`
-   - `sudo crictl info` が応答する。`sudo crictl images` に既存のイメージがある（`/var/lib/containerd` が引き継がれている）
+   - `sudo /opt/bin/crictl info` が応答する。`sudo /opt/bin/crictl images` に既存のイメージがある（`/var/lib/containerd` が引き継がれている）。`crictl` は porkadot が `/opt/bin` に置いたもので、sudo の PATH には無い
    - CNI の設定は既定値のままでよい（`max_conf_num` の既定値で、cnidaria の conflist 1 つが読まれる。dev で verify-nodes と netcheck が通った）
    - 再起動の後、新しい pause（`registry.k8s.io/pause:3.10.1`）が pull される。`registry.k8s.io` に届くこと
 7. ✋ `sudo systemctl restart kubelet`。ノードが Ready に戻り、DaemonSet の Pod（cnidaria、kube-proxy、Longhorn、MetalLB の speaker、監視）が Running になることを確かめる。
+   - chirico では、DaemonSet の Pod は 3 でも 7 でも再起動しなかった。`containerd.io` 1.6.8 の shim のプロセスが動き続け、新しい containerd がそれに繋ぎ直すためである。shim は 9 の再起動で入れ替わる
    - `kubectl --context fraction get node <ノード> -o wide` の CONTAINER-RUNTIME が `containerd://2.2.1`
 8. ✋ braque、chirico、duchamp、pablo では、dns addon の修正（§1.5）を当てる。oeilvert は当たっているので何もしない。当て方は次の 2 つのどちらか。
 
@@ -412,25 +421,38 @@ oeilvert では、§3.4 の 3（containerd の置き換え）をこの手順で�
 
 ### 3.5 `do-release-upgrade` ✋
 
+**2 台目からは、オペレーター（agent）が非対話で流す**（ユーザーの判断、2026-10-17）。chirico はユーザーが対話モードで流した（`results/chirico.md` §4）。
+conffile の質問と「不要になったパッケージを削除するか」への答えは、chirico で決まった答えと非対話の答えが同じなので、手で答える理由が無い。
+
 1. 前提の確認（読み取り）。
-   - `apt list --upgradable` が空（3.4 で当たっている）
+   - `apt list --upgradable` が空（3.4 で当たっている）。phased update で止められているもの（chirico では `open-vm-tools`）は残っていてよい。chirico では、それが残ったままでも `do-release-upgrade` は拒否しなかった
    - `/var/run/reboot-required` が無い
    - `/` の空きが 10G 以上（調査では最小 88G）
    - third-party のリポジトリが無い（`/etc/apt/sources.list.d/` が空か、無効にした名前のファイルだけ）。`docker.list` が残っていると、`containerd.io` 2.4.2 が「当たっていない更新」と見なされ、`do-release-upgrade` が拒否する（§3.4 の 1）
-2. ✋ `sudo do-release-upgrade` を SSH 越しに実行する。
-   - SSH 越しで実行すると、`do-release-upgrade` は確認の上で予備の sshd を port 1022 に立て、`screen` の中で動く。SSH が切れたら、入り直して `sudo screen -x` で戻る。
-   - 非対話（`-f DistUpgradeViewNonInteractive`）は使わない。conffile の質問を見て答えるため。dev は非対話で流したので、対話モードと SSH 越しの動き（予備の sshd、`screen`）は本番の 1 台目（chirico）で初めて通す。
-3. 途中の質問への答え方。
-   - 「third-party のリポジトリを無効にする」: そのまま進める（3.4 で外してあるので無いはず）
-   - サービスの再起動の確認（libc などの更新時）: 「はい」
-   - **conffile の置き換え**: 調査 §2.2 の表のファイル（`/etc/sudoers`、`/etc/multipath.conf`、oeilvert の `/etc/systemd/resolved.conf`）は **手元の版を残す**（`N`）。
-     表に無いファイルで質問が出たら、`D` で差分を見て判断する。迷ったら手元の版を残し、作業記録に書く。
-   - **「不要になったパッケージを削除するか」**: 一覧を読む。kubelet などは apt の管理外なので出ない。Ubuntu の `containerd`、`runc`、`open-iscsi`、`nfs-common`、`zfsutils-linux`、oeilvert の `docker.io` と `libvirt`・`qemu` が入っていれば削除しない
-   - 最後の再起動: 「はい」
-4. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
+   - 手元で変わっている conffile を控える。dpkg の md5 が合わないもの（`dpkg-query -W -f='${Conffiles}\n'` の md5 で `md5sum -c`）と、ucf が管理するもので `/var/lib/ucf/hashfile` と合わないもの。
+     chirico では `/etc/sudoers`、`/etc/multipath.conf`、`/etc/ssh/sshd_config`（ucf。末尾の `PasswordAuthentication no`）だった。`sshd_config` は調査 §2.2 の表に無かったので、ほかのノードでも確かめる
+2. ✋ 非対話で流す。SSH が切れても止まらないように、systemd の unit の中で動かす。
+
+   ```sh
+   sudo systemd-run --unit=release-upgrade \
+     --setenv=DEBIAN_FRONTEND=noninteractive --setenv=UCF_FORCE_CONFFOLD=1 \
+     do-release-upgrade -f DistUpgradeViewNonInteractive
+   ```
+
+   - `DistUpgradeViewNonInteractive` は、dpkg の conffile の質問に `n`（手元の版を残す）と答え、Yes/No の質問（不要になったパッケージの削除を含む）には Yes と答え、**最後の再起動はしない**（24.04 の `DistUpgradeViewNonInteractive.py` の `conffile()`、`askYesNoQuestion()`、`confirmRestart()` で確かめた）。ucf の質問は `UCF_FORCE_CONFFOLD=1` で手元の版を残す
+   - 進み具合は `/var/log/dist-upgrade/main.log` と `apt-term.log` で見る。終わりは `systemctl is-active release-upgrade` が inactive になったときで、`systemctl show release-upgrade -p Result -p ExecMainStatus` で結果を見る
+   - **途中で 8 分ほど、新しい SSH の接続ができなくなる。** chirico では 12:56〜13:04Z に、port 22 は `Connection refused`、予備の port 1022（対話モードのとき）は鍵交換で reset された。openssh-server と libssl（t64 の移行）が入れ替わる間である。ping と Node の Ready は続く。systemd の unit で流していれば、更新は止まらない。慌てて別の手を打たずに待つ
+3. 終わったら、再起動の前に確かめる（読み取り）。
+   - `/etc/os-release` が 24.04.5
+   - 1 で控えた conffile が手元の版のまま。特に `/etc/sudoers` の `NOPASSWD`（`sudo -n true` が通ること）と `/etc/ssh/sshd_config`
+   - `/var/log/dist-upgrade/history.log` の `Remove:` と `Purge:` に、`containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`zfsutils-linux`、`sudo`、`openssh-server`、oeilvert の `docker.io` と `libvirt`・`qemu` が無いこと。無くなっていたら、再起動の前に止めて報告する
+     （chirico で消えたのは、t64 で名前が変わったライブラリの古い名前、5.15.0-164 の kernel、python3.10、`irqbalance`、`isc-dhcp-client`、`binutils`、`policykit-1` など。`results/chirico.md` §4.2）
+   - `dpkg -l containerd runc` が ~24.04 の版
+4. ✋ 再起動する（`sudo systemctl reboot`）。再起動はユーザーに知らせ、コンソールで見られることを確かめてから行う。
+5. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
 
 > `do-release-upgrade` は systemd を更新するので、途中で `systemd-networkd` が再起動し、cnidaria の経路（proto 200）がいったん消える。cnidaria v0.1.1 が数秒で入れ直す（§2.2）。
-> 再起動の後、§3.7 の 5（`verify-nodes.sh`）で経路が揃っていることを確かめる。消えるのは Pod 向けの経路で、ホストの経路ではないので、更新の途中で SSH が切れることは無い。
+> 再起動の後、§3.7 の 5（`verify-nodes.sh`）で経路が揃っていることを確かめる。消えるのは Pod 向けの経路で、ホストの経路ではない。新しい SSH の接続ができなくなるのは、上の 2 の openssh-server の入れ替えのためである。
 
 dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かかった。`containerd` と `runc` は ~24.04 の版に上がり、`/etc/containerd/config.toml` は version 3 のまま残った。Obsolete に `containerd.io` は出ず、`setup-containerd` の再実行は要らなかった。
 残った conffile は `/etc/ca-certificates.conf.dpkg-old` だけだった（dev のノードには手で変えた conffile が無いため。本番では調査 §2.2 のファイルで質問が出る）。apt の source は `ubuntu.sources`（noble）になる。
@@ -483,12 +505,13 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
 ### 3.8 uncordon と後始末 ✋
 
 1. ✋ `kubectl-admin uncordon <ノード>`。
-2. §2.4 で変えたものを ✋ 元に戻す。`node-drain-policy` を `block-if-contains-last-replica` に、oeilvert では `minio/minio` の StatefulSet を 4 に、Prometheus リソースの `spec.replicas` を変えていれば 2 に戻す。
+2. §2.4 で変えたものを ✋ 元に戻す。`node-drain-policy` を `block-if-contains-last-replica` に、oeilvert では `minio/minio` の StatefulSet を 4 に、chirico と duchamp では Prometheus リソースの `spec.replicas` を 2 に戻す。
    MinIO と prometheus の Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
 3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ §2.5 の 2 つの設定を元の値（§3.3 の 5 で記録した値）に戻す。
    - `concurrent-replica-rebuild-per-node-limit` を `5` に、`replica-auto-balance` を `least-effort` に戻す（2026-10-17 の時点の値）。
    - 戻した後に値を読み直して確かめる。
    - 戻すと、対象のノードの止まっていた replica の再同期が始まる。
+   - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分で戻した
 4. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。**再同期（再構築）が終わるまで待つ**（§3.9 の条件）。
    - 再構築が始まらない、または対象のノードの replica ではなくほかのノードに新しい replica が作られた場合は、作業記録に書く（§2.5 の注意の 100 分を過ぎた場合など）。
    - faulted になったボリュームは自動では直らない。使っている Pod を消してアタッチし直すと auto-salvage が走る（Wiki `entities/oeilvert`）。Pod を消すのは ✋
@@ -598,6 +621,20 @@ oeilvert は unattended-upgrades の自動再起動（`52local-reboot.conf`、04
 
 MinIO の 4 つのボリュームは replica 1 で、replica はすべて oeilvert の /var/lib/longhorn2 にある（調査 §3.4）。oeilvert 以外のノードを止めると、そのノードの MinIO の Pod 1 台が止まる（Pod は別のノードに移り、oeilvert の replica を使ってアタッチし直す）。oeilvert を止めると、MinIO 全体が止まる。
 ユーザーの判断で、replica 1 のボリュームは止まってよい（§2.1 の 2）。この手順では replica を増やさず、oeilvert の作業中は MinIO を止める（§2.4）。
+
+### 5.7 porkadot（sshkit）が known_hosts のホスト鍵を「一致しない」と言う
+
+chirico で `setup-containerd` が `Net::SSH::HostKeyMismatch: fingerprint SHA256:... does not match for "192.168.1.83"` で止まった（`results/chirico.md` §3.2）。ホスト鍵は変わっていない。
+
+- 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。名前をハッシュした行（`|1|...`）は、名前が一致した**最初の 1 行の鍵だけ**を返す。作業端末の `~/.ssh/known_hosts` では、1 つのホストの ED25519、RSA、ECDSA が別々のハッシュの行にある。
+  ED25519 は ed25519 の gem が無いので読み飛ばされ、次の RSA の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、「一致しない」になる。`ssh` と net-ssh 単体（`Net::SSH::KnownHosts`）は全部の行を読むので通る
+- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み。chirico は下の対処をした
+- 対処: そのノードの ECDSA の鍵を、名前をハッシュしない行で `~/.ssh/known_hosts` に足す。sshkit はハッシュしない行を先に見る。
+  1. 鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、`<IP> ecdsa-sha2-nistp256 <鍵>` の形にする
+  2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる
+  3. `~/.ssh/known_hosts` の控えを取ってから 1 行足す。`~/.ssh` は agent のサンドボックスの外なので、外での実行をユーザーに頼む
+- 確かめ方（読み取り）: porkadot の checkout で、`SSHKit::Backend::Netssh::KnownHosts.new.search_for("<IP>", {})` が ECDSA の鍵を返すこと
+- 根本の対処（sshkit の修正か、porkadot での回避）はこのタスクの範囲外で、申し送りにする
 
 ## 6. 完了後の確認と後片付け
 
