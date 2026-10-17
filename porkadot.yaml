@@ -107,3 +107,7 @@ kubernetes:
     pod_subnet: "10.244.0.0/16,fde7:4ad6:425d::/48"
     additional_domains:
     - fraction.cluster
+
+local:
+  sops:
+    enabled: true

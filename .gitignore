@@ -1,4 +1,8 @@
 /password.txt
+# Ignore any directory named secrets by default: it holds plaintext, such as
+# the legacy assets/secrets/ layout or files extracted from secrets.tar.asc.
 secrets/
+# Encrypted with sops by porkadot.
+!/assets/bootstrap/bootstrap/secrets/
 secrets.tar
 backup/

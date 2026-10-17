@@ -1,0 +1,4 @@
+creation_rules:
+  - path_regex: ^assets/.*
+    age: age13qtla9ypuh29eky4slttd5ydczq97fng5cyfqyngnanw3sglsucq0cl6af
+    # GPG (3294F66420D4ECB2) will be added with sops updatekeys once its public key is available.
