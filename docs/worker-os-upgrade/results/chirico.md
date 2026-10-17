@@ -253,3 +253,50 @@ conffile の質問と答え（`/var/log/dist-upgrade/screenlog.0`）:
 | 13 | 失敗している unit | 無い。`ordering cycle` も 0 |
 
 apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261017` だけ。`/var/run/reboot-required` は無い。
+
+## 6. uncordon と後始末（runbook §3.8）
+
+以下はすべて runbook のとおりの操作で、ユーザーの決定（§3 の注記）に従い、知らせて進めた。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 13:11:47 | `infra-admin` のトークンを発行し直す（2h）。最初の 3h のトークンが 13:23 に切れるため | |
+| 13:11:47 | `uncordon chirico` | Ready |
+| 13:11:57 | `node-drain-policy` を `block-if-contains-last-replica` に戻す。`monitoring/kube-prometheus` の `spec.replicas` を 2 に戻す | prometheus-0 は chirico、prometheus-1 は duchamp で Running。2 つのボリュームは healthy でアタッチ |
+| 13:13:36 | Longhorn の node の chirico が Ready で schedulable なのを確かめ、`concurrent-replica-rebuild-per-node-limit` を `5`、`replica-auto-balance` を `least-effort` に戻す | 読み直して `5`、`least-effort`、APPLIED true |
+| 13:13:49〜13:33:30 | 再同期を待つ | degraded は 9 → 0。最後の 2 つ（13:15〜13:31、13:31〜13:33）は大きいボリュームだった |
+| 13:34:04〜13:34:22 | `netcheck.sh up` → `run` → `down` | `PASS 168 / 168, pods 8/8`。namespace は消した |
+| 13:34 | `check-apps.sh` | ベースラインと差が無い |
+| 13:34:50 | トークンを破棄（作業端末のファイルを消した。トークン自体は 15:11 に失効する） | |
+
+- chirico の replica が止まったのは 11:35:15（drain の時刻、`spec.failedAt`）。設定を戻したのはその 98 分後で、`replica-replenishment-wait-interval`（6000 秒）の内側だった。止まっていた replica はすべて再利用され、新しい replica は作られなかった（replica は 45 個のまま。ノードごとの数もベースラインと同じ）
+- Longhorn: attached healthy 23、detached unknown 2（myao、cg-data。ベースラインと同じ）
+
+## 7. 次の 1 台へ進む条件（runbook §3.9。30 分の様子見を除く）
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台が Ready。chirico が 24.04.5 と `containerd://2.2.1` | 満たす |
+| etcd 3/3 healthy、VIP が応答 | 満たす（`/readyz` は `ok`） |
+| Running / Completed 以外の Pod がベースラインから増えていない | 満たす（0 個） |
+| Longhorn のボリュームが healthy、再構築が終わっている | 満たす（13:33:30 に degraded 0） |
+| `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ | 満たす（64 PASS、168/168、差なし） |
+| Longhorn の設定と Prometheus が元に戻っている | 満たす（`5`、`least-effort`、`block-if-contains-last-replica`、Prometheus 2） |
+| LoadBalancer | TCP のものはすべて応答（gated v4/v6 の 80・443、h2-sshd、natsumi-sshd の 3 つ、VIP の 6443）。minecraft は UDP なので確かめていない |
+| 30 分の様子見 | この記録の時点では 24.04 で起動してから 26 分。runbook の推奨は 1 台目の後に 1 日置くこと |
+
+## 8. 2 台目以降のために runbook を直した点
+
+- §2.4、§3.3 の 7、§3.8 の 2: chirico と duchamp では、drain の前に Prometheus を 0 にする（2.1 の drain の停止を受けて）
+- §3.3 の 8・9: drain に `--timeout=20m` を付ける。instance-manager の PDB で止まったときの調べ方。drain の後の古い iSCSI のセッションは再起動で片付けてよい
+- §3.4 の 5 と §5.7: sshkit の known_hosts の問題と対処（3.2）。duchamp、oeilvert、pablo は当たる見込み
+- §3.4 の 6・7: `crictl` は `/opt/bin` にある。containerd の置き換えでは古い shim が動き続け、Pod は再起動しない
+- §3.5: 2 台目からは非対話で流す（ユーザーの判断）。`sshd_config` の ucf の質問。途中で新しい SSH の接続が 8 分ほどできなくなる。再起動の前に止まって確かめる
+- §1.2: トークンは途中で発行し直してよい。§3.8 の 3: Longhorn の設定は drain から 100 分以内に戻す
+
+## 9. 申し送り
+
+- sshkit 1.25.0 の `KnownHostsKeys#keys_for` は、ハッシュした known_hosts の行から最初の 1 行の鍵しか返さない（3.2）。porkadot の Gemfile に ed25519 と bcrypt_pbkdf の gem が無いことも重なっている。直すなら porkadot 側（または sshkit への報告）で、このタスクの範囲外
+- `do-release-upgrade` で `irqbalance` が purge された。24.04 でも使うなら入れ直す（ユーザーの判断）
+- 22.04 での再起動では、止めてから kernel が起動するまでに約 5 分かかった（3.5）。24.04 の再起動は普通の速さだった
+- chirico の `/root` に `containerd.io_1.6.8-1_amd64.deb`、`/etc/apt/sources.list.d/docker.list.disabled-20261017`、`/etc/containerd/config.toml.porkadot-bak.20261017`、`/root/cluster-dns.service.bak-20261017` が残っている（runbook §6.2 で全台の後に片付ける）
