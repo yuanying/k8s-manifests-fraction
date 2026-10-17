@@ -19,10 +19,13 @@ EOF
 
 systemctl restart systemd-networkd
 
-cat <<EOF > /etc/systemd/system/cluster-dns.service
+# Quoted heredoc: keep the systemd escape "\x2d" in the device unit name as is.
+cat <<'EOF' > /etc/systemd/system/cluster-dns.service
 [Unit]
 Description=Setup cluster.local DNS
-After=systemd-resolved.service
+BindsTo=sys-subsystem-net-devices-porka\x2ddummy01.device
+Wants=systemd-networkd.service
+After=sys-subsystem-net-devices-porka\x2ddummy01.device systemd-networkd.service systemd-resolved.service
 Requires=systemd-resolved.service
 
 [Service]
@@ -32,7 +35,7 @@ ExecStart=resolvectl dns porka-dummy01 10.254.0.10
 ExecStart=resolvectl domain porka-dummy01 default.svc.cluster.local svc.cluster.local cluster.local
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target sys-subsystem-net-devices-porka\x2ddummy01.device
 EOF
 
 systemctl daemon-reload
