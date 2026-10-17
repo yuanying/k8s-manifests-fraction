@@ -84,7 +84,7 @@ spec:
       # names are copied out of the image, each through a temporary name so that a
       # running plugin is replaced rather than written over.
       - name: install-cni-plugins
-        image: ghcr.io/yuanying/cnidaria-cni:v0.1.0
+        image: ghcr.io/yuanying/cnidaria-cni:v0.1.1
         command: [sh, -c]
         args:
         - |
@@ -103,7 +103,7 @@ spec:
           mountPath: /host/opt/cni/bin
       containers:
       - name: cnidaria
-        image: ghcr.io/yuanying/cnidaria-cni:v0.1.0
+        image: ghcr.io/yuanying/cnidaria-cni:v0.1.1
         args:
         - --proc-sys=/host/proc/sys
         - --network-name=cbr0
