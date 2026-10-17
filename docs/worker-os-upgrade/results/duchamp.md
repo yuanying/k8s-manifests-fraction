@@ -163,7 +163,7 @@ drain の後の確認（runbook §3.3 の 9）:
 | 14:32:43 | 4: `systemctl reboot`（ユーザーが承認）。journal は 14:32:48 に止まった |
 | 14:34:57 | 24.04 で起動（firmware 30.8s、loader 6.7s、kernel 3.0s、userspace 17.3s）。14:35:30 に Ready（SchedulingDisabled） |
 
-所要時間は約 16 分。作業 agent はノードの状態を 20 秒ごとに SSH で見たが、繋がらない時間は目立たなかった（chirico の対話モードで見た 8 分の切断と比べ、詳しくは測っていない）。
+所要時間は約 16 分。作業 agent は 20 秒ごとに SSH で unit の状態を見たが、接続の失敗を記録していないので、新しい SSH の接続ができなかった時間（chirico では約 8 分）は測っていない。
 
 conffile の扱い（非対話の答え。`/var/log/dist-upgrade/apt-term.log`）:
 
