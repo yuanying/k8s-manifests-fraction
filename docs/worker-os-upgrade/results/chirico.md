@@ -93,3 +93,18 @@ Node instance-manager-4128231ccb0c288ab5a27791d898e928 is marked unschedulable b
 ```
 
 この時点で、ほかの Longhorn のボリュームはすべて healthy で、chirico 以外のノードでアタッチされていた。chirico にある 2 replica のボリュームの replica は running のままだったが、drain は止めていない。rebuild limit が 0 なので、新しい replica は作られていない。
+
+### 2.2 Prometheus を止めて drain をやり直した
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 11:30:24 | ✋ `monitoring/kube-prometheus` の `spec.replicas` を 2 → 0（runbook §2.4 の注意。ユーザーが承認） | 11:30:34 に pvc-625c8825 が detached、chirico の replica が stopped。chirico の instance-manager の PDB を Longhorn が外した |
+| 11:35:14 | ✋ `drain chirico ... --force --timeout=10m`（再実行） | 11:35:17 に `node/chirico drained`（rc 0）。instance-manager-4128… を evict しただけ |
+
+drain の後の確認（runbook §3.3 の 9）:
+
+- Longhorn のボリューム: chirico でアタッチしているものは無い。attached healthy 12、attached degraded 9（chirico に replica がある 2 replica のボリューム）、detached 4（myao、cg-data、prometheus の 2 つ）
+- replica は 45 個で、drain の前と同じ数（chirico 12 は全部 stopped）。ほかのノードに新しい replica は作られていない（rebuild limit 0 が効いている）
+- **iSCSI のセッションが 7 つ残っている**（すべて `TRANSPORT WAIT` / `REOPEN`）。行き先は退いた chirico の 2 つの instance-manager（10.244.8.92 と 10.244.8.147）。
+  10.244.8.92 の 5 つ（pvc-8eb75c08、9c4cfb16、1d94c3ed、c4944b75、0b28d049）は、drain の前からあった。そのうち 3 つ（hedgedoc、h2、tumblr-data）は、事前の読み取りの時点で chirico ではなくほかのノードでアタッチしていたので、もともと古いセッションである。
+  10.244.8.147 の 2 つ（prometheus-0、minio-3）は drain で残ったもの。ブロックデバイス（sdb〜sdi）は残っているが、どれもマウントはされていない。runbook §5.3 と同じ症状で、§3.4 の 9 の再起動で片付く見込み
