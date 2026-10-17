@@ -163,3 +163,32 @@ drain の後に残った iSCSI のセッションは、ユーザーの判断で�
 - 元の unit は `/root/cluster-dns.service.bak-20261017` に写した。`daemon-reload`、`reenable`、`restart` を流した
 - `reenable` は `Unit ... is added as a dependency to a non-existent unit sys-subsystem-net-devices-porka\x2ddummy01.device` と警告した。device unit はディスク上の unit ファイルが無いので `systemctl enable` がそう言うだけで、実際には `loaded active plugged`（`/sys/subsystem/net/devices/porka-dummy01`）である。oeilvert でも同じ状態で `cluster-dns` は active
 - `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は 7 本のまま
+
+### 3.5 22.04 の再起動（runbook §3.4 の 9・10）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 12:37:23 | 9: `systemctl reboot`（ユーザーが承認） | journal は 12:37:28 に止まった。kernel の起動は 12:42:21（`uptime -s`）。12:42:57 に Ready |
+
+- 起動は 48 秒（firmware 13.8s、loader 2.9s、kernel 8.9s、userspace 22.5s）。止めるのも journal が止まるまでは 5 秒だった。その後、kernel が起動するまでの約 5 分は journal に残らない（最後の停止処理か firmware の起動で時間がかかった）。
+  止める直前まで、iscsid は退いた instance-manager（10.244.8.92、10.244.8.147）への再接続を `No route to host` で続けていた
+- 起動の後: kernel 5.15.0-198-generic、`containerd://2.2.1`、config は `version = 3` のまま。containerd の journal に migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空
+- kubelet は、containerd の socket ができる前に 1 度起動に失敗し（`dial unix /run/containerd/containerd.sock: connect: no such file or directory`）、systemd がやり直して上がった
+- DaemonSet の Pod は 8 つとも Running（それぞれ restart が 1 回ずつ増えた）。MetalLB の speaker は起動の直後に 1 度 CrashLoopBackOff になってから戻った（dev と同じ）。`registry.k8s.io/pause:3.10.1` は pull 済み。Pending の CSR は無い
+- runbook §3.7 の 8〜13:
+  - `/var/lib/longhorn` はマウントされている（1.8T、空き 1.3T）
+  - **iSCSI の古いセッションは消えた**（`No active sessions`）。iscsid は `iscsid.socket` が active で、必要なときに起動する（22.04 の既定）。multipathd は active で、`/etc/multipath.conf` は addon の版（`^sd[a-z0-9]+` の blacklist）
+  - `sudo -n true` が通る
+  - `cluster-dns` は active。`porka-dummy01` に 10.254.0.10 と検索ドメインがある
+  - `systemctl --failed` は空（事前にあった snap の mount、`fwupd-refresh`、`systemd-networkd-wait-online` の失敗も消えた）。`ordering cycle` は 0
+  - cnidaria の経路（proto 200）は v4・v6 とも 7 本。`/var/run/reboot-required` は無い
+
+## 4. `do-release-upgrade`（runbook §3.5）
+
+### 4.1 前提の確認（§3.5 の 1）
+
+- `apt list --upgradable` は `open-vm-tools`（2:12.3.5-3~ubuntu0.22.04.4、phased update）だけ。phased update で止められているものなので、`full-upgrade` では上がらない
+- `/var/run/reboot-required` は無い。`/` の空きは 323G。`sources.list.d` は `docker.list.disabled-20261017` だけ
+- `/etc/update-manager/release-upgrades` は `Prompt=lts`。`ubuntu-release-upgrader-core` は 1:22.04.21。`do-release-upgrade -c` は `New release '24.04.5 LTS' available`
+- 手元で変わっている conffile（dpkg の md5 が合わないもの）: `/etc/sudoers`、`/etc/multipath.conf`、`/etc/containerd/config.toml`（`containerd.io` は remove 済みで、設定ファイルだけが残る `rc` の状態）
+- ucf が管理するファイルで手元で変わっているもの: **`/etc/ssh/sshd_config`**（末尾に `PasswordAuthentication no` を足したもの。ucf の hash と合わない）。調査 §2.2 の表には無かった。`/etc/default/grub` は ucf の hash と一致する
