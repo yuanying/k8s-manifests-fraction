@@ -69,3 +69,27 @@ replica 1 のボリュームで replica が chirico にあるのは `monitoring/
 
 タスクディレクトリの `notes/hosts/chirico-20261017/` に保存した（リポジトリには入れない）:
 `containerd-config.toml`、`etc-apt-sources.tar`（`sources.list` と `sources.list.d/`）、`kubelet.service.txt`、`cluster-dns.service`、`multipath.conf`、`sudoers`、`sudoers.d-ls.txt`、`netplan.tar`、`dpkg-selections.txt`、`dpkg-l.txt`、`ip.txt`。
+
+## 2. cordon と drain（runbook §3.3）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 10:23:08 | ✋ `infra-admin` のトークンを発行（3h） | 作業端末の 600 のファイルに置いた。`auth can-i patch nodes` が yes |
+| 10:23:45 | ✋ `cordon chirico` | Ready,SchedulingDisabled |
+| 10:30:23 | ✋ `concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled`（runbook §2.5） | 直前の値は `5` と `least-effort`。読み直して `0` と `disabled`、APPLIED true |
+| 10:49:31 | ✋ `node-drain-policy` を `allow-if-replica-is-stopped`（runbook §2.4） | 読み直して APPLIED true |
+| 10:53:37 | ✋ `drain chirico --ignore-daemonsets --delete-emptydir-data --force --timeout=20m` | 11:13:38 に時間切れ（rc 1）。下の 2.1 |
+
+### 2.1 drain が instance-manager の PDB で止まった
+
+DaemonSet 以外の Pod は 44 個とも退いた（`default/dnsutils` と `tracing/dnsutils` は `--force` で消えた）。残ったのは chirico の `instance-manager-4128231c…` の 1 つで、PDB を外されないまま 20 分の時間切れになった。
+
+原因は runbook §2.4 の「注意」に書いたとおりだった。
+`prometheus-kube-prometheus-0` は drain で退いた後に oeilvert で作り直され、replica 1 のボリューム pvc-625c8825（prometheus-0）を oeilvert でアタッチした。
+replica は chirico にしか無いので、chirico の replica が running のまま残り、`allow-if-replica-is-stopped` でも drain は通らない。longhorn-manager のログ:
+
+```
+Node instance-manager-4128231ccb0c288ab5a27791d898e928 is marked unschedulable but removing chirico PDB is blocked: replica pvc-625c8825-4571-43d8-9119-c006a4a48399-r-222844ee has no pdb on another node
+```
+
+この時点で、ほかの Longhorn のボリュームはすべて healthy で、chirico 以外のノードでアタッチされていた。chirico にある 2 replica のボリュームの replica は running のままだったが、drain は止めていない。rebuild limit が 0 なので、新しい replica は作られていない。
