@@ -368,6 +368,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
    (a) の後は `ip route show proto 200` で経路が戻っていることを見る。経路が戻らない場合: このノードの Pod から他のノードへの通信が届かなくなる（drain 済みなので、影響は DaemonSet の Pod に限られる）。cnidaria-cni-dev の `verify-nodes.sh` で経路の不足を確かめ、このノードの cnidaria の Pod を消して作り直させるか ✋、そのまま 9 の再起動に進む（cnidaria は起動時に経路を入れ直す）。
 9. ✋ ノードを再起動する（`sudo reboot`）。22.04 の更新の反映と、containerd 2.2.1 で起動から上がることの確認を兼ねる。
    - braque・chirico・duchamp は 2026-01 以来の再起動である。起動しない場合に備えて、コンソールを用意しておく。
+   - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分かかった（どちらも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない
 10. 再起動の後、6 と 7 の確認をもう一度行う。加えて §3.7 の 8〜13（ノードごとの確認）を行う。
 
 **porkadot で流すのは、5 の `setup-containerd --node` だけ**（8 で (a) を選んだ場合は `setup-node` も）。`install kubelet` は流さない。
@@ -450,6 +451,7 @@ conffile の質問と「不要になったパッケージを削除するか」�
    - `dpkg -l containerd runc` が ~24.04 の版
 4. ✋ 再起動する（`sudo systemctl reboot`）。再起動はユーザーに知らせ、コンソールで見られることを確かめてから行う。
 5. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
+6. ✋ `irqbalance` を入れ直す（`sudo apt-get install -y irqbalance`）。`do-release-upgrade` が「不要になったパッケージ」として purge する（chirico、duchamp）。ユーザーの判断で 24.04 でも使う。3 の `history.log` の `Purge:` に `irqbalance` があることを確かめてから入れる
 
 > `do-release-upgrade` は systemd を更新するので、途中で `systemd-networkd` が再起動し、cnidaria の経路（proto 200）がいったん消える。cnidaria v0.1.1 が数秒で入れ直す（§2.2）。
 > 再起動の後、§3.7 の 5（`verify-nodes.sh`）で経路が揃っていることを確かめる。消えるのは Pod 向けの経路で、ホストの経路ではない。新しい SSH の接続ができなくなるのは、上の 2 の openssh-server の入れ替えのためである。
@@ -511,7 +513,8 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
    - `concurrent-replica-rebuild-per-node-limit` を `5` に、`replica-auto-balance` を `least-effort` に戻す（2026-10-17 の時点の値）。
    - 戻した後に値を読み直して確かめる。
    - 戻すと、対象のノードの止まっていた replica の再同期が始まる。
-   - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分で戻した
+   - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分、duchamp では 52 分で戻した
+   - Prometheus を 2 に戻すと、prometheus-0 と prometheus-1 が更新前と逆のノードで起動することがある（duchamp ではそうなった）。data locality（`best-effort`）で、replica 1 のボリュームの replica が Pod のあるノードへ丸ごとコピーされる。データは失わず、ボリュームは healthy のままである。drain で別のノードへ移った 2 replica のボリューム（duchamp では `open-webui-pipelines`）も、同じ理由で replica が 1 つ移る
 4. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。**再同期（再構築）が終わるまで待つ**（§3.9 の条件）。
    - 再構築が始まらない、または対象のノードの replica ではなくほかのノードに新しい replica が作られた場合は、作業記録に書く（§2.5 の注意の 100 分を過ぎた場合など）。
    - faulted になったボリュームは自動では直らない。使っている Pod を消してアタッチし直すと auto-salvage が走る（Wiki `entities/oeilvert`）。Pod を消すのは ✋
@@ -628,7 +631,7 @@ chirico で `setup-containerd` が `Net::SSH::HostKeyMismatch: fingerprint SHA25
 
 - 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。名前をハッシュした行（`|1|...`）は、名前が一致した**最初の 1 行の鍵だけ**を返す。作業端末の `~/.ssh/known_hosts` では、1 つのホストの ED25519、RSA、ECDSA が別々のハッシュの行にある。
   ED25519 は ed25519 の gem が無いので読み飛ばされ、次の RSA の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、「一致しない」になる。`ssh` と net-ssh 単体（`Net::SSH::KnownHosts`）は全部の行を読むので通る
-- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み。chirico は下の対処をした
+- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み。chirico と duchamp は下の対処をした（duchamp は porkadot を流す前にした。`results/duchamp.md` §1.5）
 - 対処: そのノードの ECDSA の鍵を、名前をハッシュしない行で `~/.ssh/known_hosts` に足す。sshkit はハッシュしない行を先に見る。
   1. 鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、`<IP> ecdsa-sha2-nistp256 <鍵>` の形にする
   2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる

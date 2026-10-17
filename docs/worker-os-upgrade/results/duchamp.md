@@ -131,3 +131,133 @@ drain の後の確認（runbook §3.3 の 9）:
 - 元の unit は `/root/cluster-dns.service.bak-20261017` に写した。`daemon-reload`、`reenable`、`restart` を流した
 - `reenable` は chirico と同じく `... is added as a dependency to a non-existent unit sys-subsystem-net-devices-porka\x2ddummy01.device` と警告した（害はない。`chirico.md` §3.4）
 - `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は v4・v6 とも 7 本のまま
+
+### 3.4 22.04 の再起動（runbook §3.4 の 9・10）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 13:56:29 | 9: `systemctl reboot`（ユーザーが承認） | journal は 13:56:33 に止まった。kernel の起動は 14:13:26（`uptime -s`）。14:14:01 に Ready |
+
+- **止めてから kernel が起動するまで約 17 分かかった**（chirico は約 5 分）。この間は journal に残らない。起動そのものは 27 秒（kernel 4.6s、userspace 22.5s）
+- 起動の後: kernel 5.15.0-198-generic、`containerd://2.2.1`、config は `version = 3` のまま。containerd の journal に migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空
+- kubelet は containerd の socket ができる前に起動に失敗し、systemd がやり直して上がった（chirico と同じ）
+- DaemonSet の Pod は 8 つとも Running。MetalLB の speaker は 1 度 CrashLoopBackOff（`dial tcp 10.254.0.1:443: connect: connection refused`）になり、14:14 に戻った。Pending の CSR は無い
+- runbook §3.7 の 8〜13: `/var/lib/longhorn` はマウントされている。**iSCSI の古いセッションは消えた**。multipathd と `iscsid.socket` は active、`/etc/multipath.conf` は addon の版。`sudo -n true` が通る。`cluster-dns` は active で `porka-dummy01` に 10.254.0.10 と検索ドメイン。`systemctl --failed` は空（事前の `snap-lxd` と `fwupd-refresh` も消えた）。`ordering cycle` は 0。cnidaria の経路は v4・v6 とも 7 本。`/var/run/reboot-required` は無い
+
+## 4. `do-release-upgrade`（runbook §3.5）
+
+### 4.1 前提の確認（§3.5 の 1）
+
+- `apt list --upgradable` は空。`/var/run/reboot-required` は無い。`/` の空きは 119G。`sources.list.d` は `docker.list.disabled-20261017` だけ
+- `Prompt=lts`、`ubuntu-release-upgrader-core` は 1:22.04.21。`do-release-upgrade -c` は `New release '24.04.5 LTS' available`
+- 手元で変わっている conffile は chirico と同じ: dpkg の md5 が合わないのは `/etc/sudoers`、`/etc/multipath.conf`、`/etc/containerd/config.toml`（`containerd.io` の `rc` の残り）。ucf で合わないのは `/etc/ssh/sshd_config`
+
+### 4.2 実行（非対話）
+
+| 時刻（UTC） | 出来事 |
+|---|---|
+| 14:15:01 | `systemd-run --unit=release-upgrade --setenv=DEBIAN_FRONTEND=noninteractive --setenv=UCF_FORCE_CONFFOLD=1 do-release-upgrade -f DistUpgradeViewNonInteractive` |
+| 14:20:26 | パッケージの入れ替えが始まった（`history.log`） |
+| 14:30:59 | 不要になったパッケージの purge |
+| 14:31:17 | `confirmRestart() called`（main.log の最後）。unit は `Result=success`、`ExecMainStatus=0`。再起動はしていない |
+| 14:32:43 | 4: `systemctl reboot`（ユーザーが承認）。journal は 14:32:48 に止まった |
+| 14:34:57 | 24.04 で起動（firmware 30.8s、loader 6.7s、kernel 3.0s、userspace 17.3s）。14:35:30 に Ready（SchedulingDisabled） |
+
+所要時間は約 16 分。作業 agent はノードの状態を 20 秒ごとに SSH で見たが、繋がらない時間は目立たなかった（chirico の対話モードで見た 8 分の切断と比べ、詳しくは測っていない）。
+
+conffile の扱い（非対話の答え。`/var/log/dist-upgrade/apt-term.log`）:
+
+| ファイル | 結果 |
+|---|---|
+| `/etc/sudoers` | 手元の版のまま。`%sudo ALL=(ALL:ALL) NOPASSWD:ALL` が残り、`sudo -n true` が通る。メンテナの版は `/etc/sudoers.dpkg-dist` に置かれた |
+| `/etc/ssh/sshd_config`（ucf） | 手元の版のまま（2022-09-16 の版、末尾に `PasswordAuthentication no`）。メンテナの版は `sshd_config.ucf-dist` に置かれた（14:29:32 に更新） |
+| `/etc/multipath.conf` | 質問は出ず、addon の版のまま（multipath-tools 0.9.4-5ubuntu8.2） |
+
+削除されたもの（`/var/log/dist-upgrade/history.log`）は chirico と同じ:
+
+- `Remove:` は、24.04 で名前が変わったライブラリの古い名前だけ（`libssl3`、`libcurl4`、`libglib2.0-0` など）
+- `Purge:` は 5.15.0-164 の kernel 一式、python3.10、`libperl5.34`、**`irqbalance`**、`isc-dhcp-client`、`isc-dhcp-common`、`binutils` 一式、`policykit-1`、`pkexec`、`ubuntu-advantage-tools` など
+- `containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`sudo`、`openssh-server` は 24.04 の版で残っている。kernel は 5.15.0-198 と 6.8.0-147
+- apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261017`
+
+再起動の前、cnidaria の経路は 7 本のままだった。
+
+## 5. 24.04 での確認（runbook §3.6・§3.7）
+
+版:
+
+| 項目 | 値 |
+|---|---|
+| OS | Ubuntu 24.04.5 LTS |
+| kernel | 6.8.0-147-generic |
+| containerd | 2.2.1-0ubuntu1~24.04.3（`containerd://2.2.1`） |
+| runc | 1.3.4-0ubuntu1~24.04.1 |
+| nftables | 1.0.9 |
+| kubelet | v1.29.8 |
+| irqbalance | 1.9.3-2ubuntu5（再起動の後に入れ直した） |
+
+- §3.6: `/etc/containerd/config.toml` は §3.4 で作った version 3 のまま（`SystemdCgroup = true`、`registry.k8s.io/pause:3.10.1`）。migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。containerd と kubelet は active。kubelet は 22.04 のときと同じく、起動直後に 1 度 containerd の socket が無くて失敗し、やり直して上がった。`setup-containerd` の再実行は要らなかった
+- 14:36:59: ✋ `apt-get install -y irqbalance`（ユーザーの指示。chirico と同じ）。1.9.3-2ubuntu5 が入り、active
+
+| # | 確認 | 結果 |
+|---|---|---|
+| 1 | Node | Ready,SchedulingDisabled。24.04.5、6.8.0-147-generic、`containerd://2.2.1`。ラベル `metallb=speaker` と `node-role.kubernetes.io/assassin` が残っている |
+| 2 | CSR | Pending は無い |
+| 3 | DaemonSet の Pod | cnidaria、kube-proxy、engine-image、longhorn-csi-plugin、longhorn-manager、speaker、node-exporter、smart-exporter が Running |
+| 4 | ログ | cnidaria と kube-proxy のログが読める |
+| 5 | cnidaria | `verify-nodes.sh` は 64 PASS、FAIL 0。cnidaria のログに error は無い。14:35:52 に経路を入れて nft のテーブルを適用した |
+| 6 | ホストの nft | 1.0.9。`nft list tables` は `inet cnidaria` を含めて rc 0 |
+| 7 | iptables | FORWARD の policy は ACCEPT。v4・v6 とも `CNIDARIA-FWD` へのジャンプが先頭 |
+| 8 | ディスク | `/var/lib/longhorn`（`/dev/sdb`、1.8T）がマウントされている |
+| 9 | ZFS | duchamp には無い |
+| 10 | multipath と iSCSI | `/etc/multipath.conf` は addon の版。multipathd と `iscsid.socket` は active。iSCSI のセッションは無い |
+| 11 | sudo | `sudo -n true` が通る |
+| 12 | DNS | `cluster-dns` は修正済みの版で active。`porka-dummy01` に 10.254.0.10 と検索ドメイン |
+| 13 | 失敗している unit | 無い。`ordering cycle` も 0 |
+
+24.04 の再起動の最後に、コンソールに `waiting for process: 2088 (bash), 2327 (sleep)` と出た（ユーザーが見た）。どのプロセスかは突き止めていない。前の boot の journal では、この番号は BPF の prog-id としてしか出てこなかった。停止は 5 秒ほどで終わり、起動にも影響は無かった。
+
+## 6. uncordon と後始末（runbook §3.8）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 14:37:16 | ✋ `uncordon duchamp`。`node-drain-policy` を `block-if-contains-last-replica` に戻す。`monitoring/kube-prometheus` の `spec.replicas` を 2 に戻す | Longhorn の node の duchamp は Ready で schedulable。prometheus-0 は duchamp、prometheus-1 は chirico で起動した（chirico の作業後と逆）。2 つのボリュームは healthy でアタッチ |
+| 14:37:43 | ✋ `concurrent-replica-rebuild-per-node-limit` を `5`、`replica-auto-balance` を `least-effort` に戻す | 読み直して `5`、`least-effort`、APPLIED true。drain で replica が止まってから 52 分 |
+| 14:37:52〜14:54:21 | 再同期を待つ | degraded は 8 → 0 |
+| 14:54:43〜14:55:00 | ✋ `netcheck.sh up` → `run` → `down` | `PASS 168 / 168, pods 8/8`。namespace は消した |
+| 14:55 | `check-apps.sh` | ベースラインと差が無い |
+| 14:55:12 | トークンを破棄（作業端末のファイルを消した。トークン自体は 16:44 に失効する） | |
+
+- Longhorn: attached healthy 23、detached unknown 2（myao、cg-data。ベースラインと同じ）。replica は 45 個のまま
+- 止まっていた replica のほとんどは再利用された。ただし data locality（`best-effort`）で 3 つの replica が移った:
+  - `monitoring/prometheus-...-0`（pvc-625c8825、replica 1）: chirico → duchamp（14:46:01 に新しい replica）。Pod が duchamp で起動したため
+  - `monitoring/prometheus-...-1`（pvc-99c35b80、replica 1）: duchamp → chirico（14:45:16）。Pod が chirico で起動したため
+  - `open-webui/open-webui-pipelines`（pvc-8af6876b、replica 2）: duchamp の 1 つ → chirico（14:38:15）。drain で Pod が chirico へ移ったため
+  - その結果、ノードごとの running の数は chirico 11（ベースライン 10）、duchamp 8（ベースライン 9）になった。どのボリュームも healthy
+- `natsumi/natsumi-aki` の duchamp の stopped の replica（cnidaria 移行の時刻のもの）はベースラインと同じく残っている
+
+## 7. 次の 1 台へ進む条件（runbook §3.9。30 分の様子見を除く）
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台が Ready。duchamp が 24.04.5 と `containerd://2.2.1` | 満たす |
+| etcd 3/3 healthy、VIP が応答 | 満たす（`/readyz` は `ok`） |
+| Running / Completed 以外の Pod がベースラインから増えていない | 満たす（0 個） |
+| Longhorn のボリュームが healthy、再構築が終わっている | 満たす（14:54:21 に degraded 0） |
+| `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ | 満たす（64 PASS、168/168、差なし） |
+| Longhorn の設定と Prometheus が元に戻っている | 満たす（`5`、`least-effort`、`block-if-contains-last-replica`、Prometheus 2） |
+| LoadBalancer | TCP のものはすべて応答（gated v4/v6 の 80・443、h2-sshd、natsumi-sshd の 3 つ、VIP の 6443）。minecraft は UDP なので確かめていない |
+| 30 分の様子見 | この記録の時点では 24.04 で起動してから約 20 分 |
+
+## 8. runbook を直した点
+
+- §3.4 の 9: 22.04 の再起動では、止めてから kernel が起動するまでに時間がかかる（chirico 約 5 分、duchamp 約 17 分）
+- §3.5 の 6: `irqbalance` を入れ直す手順を足した
+- §3.8 の 3: Prometheus を戻したときに Pod が逆のノードで起動すると、data locality で replica が丸ごとコピーされること
+- §5.7: duchamp は対処済み
+
+## 9. 申し送り
+
+- duchamp の `/root` に `containerd.io_1.6.8-1_amd64.deb` と `cluster-dns.service.bak-20261017`、`/etc/apt/sources.list.d/docker.list.disabled-20261017`、`/etc/containerd/config.toml.porkadot-bak.20261017` が残っている（runbook §6.2 で全台の後に片付ける）
+- 作業端末の `~/.ssh/known_hosts.bak-20261017-duchamp` は known_hosts の控え
+- 24.04 の再起動の最後に出た `waiting for process: 2088 (bash), 2327 (sleep)` の出どころは分かっていない
