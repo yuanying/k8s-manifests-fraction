@@ -108,3 +108,22 @@ drain の後の確認（runbook §3.3 の 9）:
 - **iSCSI のセッションが 7 つ残っている**（すべて `TRANSPORT WAIT` / `REOPEN`）。行き先は退いた chirico の 2 つの instance-manager（10.244.8.92 と 10.244.8.147）。
   10.244.8.92 の 5 つ（pvc-8eb75c08、9c4cfb16、1d94c3ed、c4944b75、0b28d049）は、drain の前からあった。そのうち 3 つ（hedgedoc、h2、tumblr-data）は、事前の読み取りの時点で chirico ではなくほかのノードでアタッチしていたので、もともと古いセッションである。
   10.244.8.147 の 2 つ（prometheus-0、minio-3）は drain で残ったもの。ブロックデバイス（sdb〜sdi）は残っているが、どれもマウントはされていない。runbook §5.3 と同じ症状で、§3.4 の 9 の再起動で片付く見込み
+
+## 3. 22.04 のまま containerd を置き換える（runbook §3.4）
+
+drain の後に残った iSCSI のセッションは、ユーザーの判断でそのままにし、§3.4 の 9 の再起動で片付ける。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 11:53:22 | ✋ 0: `/root` で `apt-get download containerd.io=1.6.8-1` | `/root/containerd.io_1.6.8-1_amd64.deb`（28.1MB、sha256 `74ce6b6b440073b6…`） |
+| 11:58:30 | ✋ 1: `docker.list` を `docker.list.disabled-20261017` に名前を変える | `containerd.io` の候補は 1.6.8-1（`/var/lib/dpkg/status` だけ）、`containerd` の候補は 2.2.1-0ubuntu1~22.04.2 |
+| 12:14:04〜12:17:58 | ✋ 2: `apt-get update` → `apt-get full-upgrade` | rc 0。132 upgraded、8 newly installed、0 removed、1 not upgraded（下の 3.1） |
+
+### 3.1 full-upgrade
+
+- 作業 agent の SSH には端末が無いので、非対話で流した: `systemd-run` の unit で、`DEBIAN_FRONTEND=noninteractive`、`UCF_FORCE_CONFFOLD=1`、dpkg の `--force-confdef --force-confold`。conffile は runbook の答えどおり手元の版を残す（N と同じ）。ログはノードの `/root/full-upgrade-20261017.log`
+- conffile: `/etc` の `*.dpkg-*` と `*.ucf-*` は前後で変わらなかった（前からあるのは `ca-certificates.conf.dpkg-old`、`containerd/config.toml.dpkg-old`、`default/grub.ucf-dist`、`ssh/sshd_config.ucf-dist`）。`/etc/sudoers`（`NOPASSWD`）と `/etc/multipath.conf`（addon の版）はそのまま
+- 更新されなかったもの: `open-vm-tools`（phased update の 70%）。systemd 本体は 249.11-0ubuntu3.23 のままで、`systemd-networkd` は再起動していない
+- 主な版: nftables 1.0.2-1ubuntu3.1、multipath-tools 0.8.8-1ubuntu1.22.04.4。kernel は 5.15.0-198 が入っていた（変わらず）
+- initramfs の作成で `Possible missing firmware /lib/firmware/amdgpu/...` の警告が出た。chirico の GPU は Renoir で、警告に出たのは別の chip（yellow_carp、cyan_skillfish、navi10 など）の firmware なので、関係ない
+- 終わった後: `/var/run/reboot-required` あり。cnidaria の経路（proto 200）は v4・v6 とも 7 本。kubelet、containerd、multipathd、iscsid は active。ノードは Ready のまま
