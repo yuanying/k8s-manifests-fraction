@@ -16,7 +16,6 @@ else
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=apps/v1/daemonset"
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=apps/v1/deployment"
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=core/v1/configmap"
-  KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=core/v1/namespace"
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=core/v1/service"
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=core/v1/secret"
   KUBECTL_OPTS="${KUBECTL_OPTS} --prune-allowlist=core/v1/serviceaccount"
