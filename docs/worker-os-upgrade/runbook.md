@@ -20,7 +20,7 @@ dev で確かめていないものは次のとおり。**本番の 1 台目（ch
 - `do-release-upgrade` の対話モード（SSH 越しの予備の sshd と `screen`、conffile の質問）。dev は非対話（`DistUpgradeViewNonInteractive`、`systemd-run` の unit）で流した。dev のノードには、conffile の質問が出るファイルが無かった。
   chirico で対話モードを通し（`results/chirico.md` §4）、2 台目からは非対話で流すことにした（§3.5）
 - Longhorn、NFS、iSCSI を持つノード（chirico、duchamp、pablo、oeilvert、braque）。ZFS（braque、oeilvert）
-- docker-ce から `docker.io` への移行（oeilvert。§3.4.1）
+- docker-ce から `docker.io` への移行（oeilvert。§3.4.1）。oeilvert で通した（`results/oeilvert.md` §3）
 
 ## 0. 役割と約束ごと
 
@@ -303,7 +303,8 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
 
 ノードごとの追加の作業:
 
-- **oeilvert**: devbox を使っている人がいないことをユーザーに確かめる。drain の前に、ホストの NFS マウント（`shared/data`、`shared/h`）を使うものが動いていないこと。unattended-upgrades の自動再起動（04:00）が作業中に来ない時間帯であること
+- **oeilvert**: devbox を使っている人がいないことをユーザーに確かめる。drain の前に、ホストの NFS マウント（`shared/data`、`shared/h`）を使うものが動いていないこと。unattended-upgrades の自動再起動（04:00。ホストの時刻は UTC）が作業中に来ない時間帯であること。
+  `homegallery/api` は Deployment の `nodeSelector` が `kubernetes.io/hostname: oeilvert` なので、drain から uncordon まで Pending になる（ユーザーの判断で、止まってよい。`results/oeilvert.md` §2）
 - **braque**: drain で動く Pod は無い（DaemonSet だけ）。NFS（nfsd の Pod）はこの段階では止まらない
 - **pablo**: share-manager（homegallery の RWX）と fs の h2、`docker/registry` が他のノードで Running に戻ったことを確かめる。oeilvert のホストの `shared/h` が読めること
 
@@ -313,7 +314,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
 
 0. ✋ 戻すときのために、`containerd.io` 1.6.8 の deb を残す（braque、chirico、duchamp、pablo）。Docker のリポジトリを外す**前に**、`apt-get download containerd.io=1.6.8-1` でノードの上（例: `/root/`）に落としておく。
    - 24.04 用の Docker のリポジトリには 1.6.8 が無い（1.6.28 以降）。この deb があれば、24.04 の上でも `containerd.io` 1.6.8 に戻せる（dev で確認。§4.2）
-   - oeilvert には Docker のリポジトリが無い。`/var/cache/apt/archives/` に `containerd.io_1.6.8-1_amd64.deb` が残っていればそれを控える。無ければ、ほかのノードで落とした deb を写しておく
+   - oeilvert には Docker のリポジトリが無い。`/var/cache/apt/archives/` に `containerd.io_1.6.8-1_amd64.deb` が残っていればそれを控える。無ければ、ほかのノードで落とした deb を写しておく（oeilvert ではキャッシュに無く、chirico の `/root` の deb を写した。sha256 を比べる）
 1. ✋ Docker の apt リポジトリを外す（braque、chirico、duchamp、pablo）。`/etc/apt/sources.list.d/docker.list` を、apt が読まない名前に変えて残す（戻せるように）。
    - これを先にしないと、次の `full-upgrade` で Docker の `containerd.io` 2.4.2 が入る（調査 §1）。
    - `containerd.io` を hold しても代わりにならない。dev では、hold していても Docker の jammy リポジトリに 2.4.2 があるため、`do-release-upgrade` が「Please install all available updates for your release before upgrading」で更新を拒否した。リポジトリを外して回避した。
@@ -368,7 +369,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
    (a) の後は `ip route show proto 200` で経路が戻っていることを見る。経路が戻らない場合: このノードの Pod から他のノードへの通信が届かなくなる（drain 済みなので、影響は DaemonSet の Pod に限られる）。cnidaria-cni-dev の `verify-nodes.sh` で経路の不足を確かめ、このノードの cnidaria の Pod を消して作り直させるか ✋、そのまま 9 の再起動に進む（cnidaria は起動時に経路を入れ直す）。
 9. ✋ ノードを再起動する（`sudo reboot`）。22.04 の更新の反映と、containerd 2.2.1 で起動から上がることの確認を兼ねる。
    - braque・chirico・duchamp は 2026-01 以来の再起動である。起動しない場合に備えて、コンソールを用意しておく。
-   - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分かかった（どちらも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない
+   - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分、oeilvert（9 日前に再起動していた）では約 2 分かかった（どれも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない
 10. 再起動の後、6 と 7 の確認をもう一度行う。加えて §3.7 の 8〜13（ノードごとの確認）を行う。
 
 **porkadot で流すのは、5 の `setup-containerd --node` だけ**（8 で (a) を選んだ場合は `setup-node` も）。`install kubelet` は流さない。
@@ -397,16 +398,22 @@ oeilvert では、§3.4 の 3（containerd の置き換え）をこの手順で�
      リポジトリがあると、apt が Docker 版を選ぶことがある。ほかの 4 台の `docker.list` は §3.4 の 1 で外すが、oeilvert には無い。
 2. devbox を使っている人がいないことをユーザーに確かめ、✋ `sudo systemctl stop devbox`。`--rm` なので devbox のコンテナは消える。
 3. ✋ `sudo systemctl stop docker docker.socket`。
-4. ✋ `sudo apt install containerd docker.io`。
-   - 実行する前に、削除の一覧を読む。削除されるのは `containerd.io` と docker-ce の 4 つだけであること。
+4. ✋ `sudo apt install containerd docker.io docker-ce-rootless-extras- docker-scan-plugin-`。
+   - 実行する前に `apt-get -s` で削除の一覧を読む。削除されるのは `containerd.io` と docker-ce の 4 つ（`docker-ce`、`docker-ce-cli`、`docker-ce-rootless-extras`、`docker-scan-plugin`）だけであること。
+     `apt install containerd docker.io` だけでは、依存が切れる `docker-ce`、`docker-ce-cli`、`containerd.io` の 3 つしか消えない。`docker-ce-rootless-extras` と `docker-scan-plugin` は docker-ce に依存しないので残る。要らないので末尾の `-` で一緒に消す（ユーザーの判断、`results/oeilvert.md` §3.2）
+   - `docker.io` の Recommends で `ubuntu-fan` も入る（ユーザーの判断で入れた）。`/etc/network/fan` は FAN の対応表だけで、`/etc/network/interfaces` か `fanctl config` で有効にしないかぎり、ブリッジも経路も作らない
    - **purge しない**（remove のまま）。`/var/lib/docker` と `/etc/docker/` を残す。
-   - debconf で「アップグレード時に docker を自動で再起動するか」を聞かれたら「はい」。
+   - debconf の「アップグレード時に docker を自動で再起動するか」は「はい」。非対話で流すなら、先に `echo "docker.io docker.io/restart boolean true" | sudo debconf-set-selections` で入れておく
+   - `docker.io` は入れた時点で自動で起動する。containerd は 5 の前は古い version 2 の config で動き、migrate の警告を出す（5 の後には消える）
 5. §3.4 の 4〜7（config の退避、`setup-containerd`、kubelet の再起動）を行う。`setup-containerd` は containerd を再起動するので、その後に ✋ `sudo systemctl restart docker`。
 6. Docker を確かめる。
    - `docker version` のサーバーが 29 系。`docker info` の Storage Driver が overlay2、Docker Root Dir が `/var/lib/docker`、Cgroup Driver が systemd
-   - `docker images` の数が 1 の控えと大きく変わらない。`docker volume ls` に元のボリュームがある
-   - `docker info` で IPv6 が有効（daemon.json が読まれている）
-   - `sudo iptables -S FORWARD | head` で、`CNIDARIA-FWD` へのジャンプが先頭にある（Docker が policy を DROP にしても Pod の通信が通る）
+   - `docker info` の Images の数が 1 の控えと大きく変わらない。`docker volume ls` に元のボリュームがある
+     Docker 29 の `docker images` はタグの無いイメージを既定で出さないので、行数は 20.10 より減る（oeilvert では 590 行 → 202 行。タグはすべて残り、`docker images -a` は 1212 個）。タグの一覧で比べる
+   - `docker network inspect bridge` で IPv6 が有効で、`fixed-cidr-v6` の範囲がある（daemon.json が読まれている）
+   - `sudo iptables -S FORWARD | head` と `ip6tables` で、policy と `CNIDARIA-FWD` の位置を見る。
+     この時点では、Docker 29 が `DOCKER-USER` と `DOCKER-FORWARD` へのジャンプを先頭に入れ、`CNIDARIA-FWD` は 3 番目になる（oeilvert）。どちらのチェーンも docker のブリッジ向けだけを扱うので、Pod の通信は通る。
+     再起動の後は Docker が kubelet と cnidaria より後に上がるので、`CNIDARIA-FWD` が先頭に戻り、`verify-nodes.sh` の FORWARD の項目も PASS になる。**ip6tables の FORWARD の policy は、再起動の後に Docker が DROP にする**（§3.7 の 7）
 7. ✋ `sudo systemctl start devbox`。
    - `docker ps` に devbox がある。ポート 3222、8080、9090、60000〜60010/udp が開いている
    - ユーザーに、`mosh.fraction.jp` に SSH（3222）と mosh で入れることを確かめてもらう
@@ -442,16 +449,18 @@ conffile の質問と「不要になったパッケージを削除するか」�
 
    - `DistUpgradeViewNonInteractive` は、dpkg の conffile の質問に `n`（手元の版を残す）と答え、Yes/No の質問（不要になったパッケージの削除を含む）には Yes と答え、**最後の再起動はしない**（24.04 の `DistUpgradeViewNonInteractive.py` の `conffile()`、`askYesNoQuestion()`、`confirmRestart()` で確かめた）。ucf の質問は `UCF_FORCE_CONFFOLD=1` で手元の版を残す
    - 進み具合は `/var/log/dist-upgrade/main.log` と `apt-term.log` で見る。終わりは `systemctl is-active release-upgrade` が inactive になったときで、`systemctl show release-upgrade -p Result -p ExecMainStatus` で結果を見る
-   - **途中で 8 分ほど、新しい SSH の接続ができなくなる。** chirico では 12:56〜13:04Z に、port 22 は `Connection refused`、予備の port 1022（対話モードのとき）は鍵交換で reset された。openssh-server と libssl（t64 の移行）が入れ替わる間である。ping と Node の Ready は続く。systemd の unit で流していれば、更新は止まらない。慌てて別の手を打たずに待つ
+   - **途中で 8〜10 分ほど、新しい SSH の接続ができなくなる。** oeilvert では 22:51:55〜23:01:56Z の約 10 分。chirico では 12:56〜13:04Z に、port 22 は `Connection refused`、予備の port 1022（対話モードのとき）は鍵交換で reset された。openssh-server と libssl（t64 の移行）が入れ替わる間である。ping と Node の Ready は続く。systemd の unit で流していれば、更新は止まらない。慌てて別の手を打たずに待つ
 3. 終わったら、再起動の前に確かめる（読み取り）。
    - `/etc/os-release` が 24.04.5
    - 1 で控えた conffile が手元の版のまま。特に `/etc/sudoers` の `NOPASSWD`（`sudo -n true` が通ること）と `/etc/ssh/sshd_config`
    - `/var/log/dist-upgrade/history.log` の `Remove:` と `Purge:` に、`containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`zfsutils-linux`、`sudo`、`openssh-server`、oeilvert の `docker.io` と `libvirt`・`qemu` が無いこと。無くなっていたら、再起動の前に止めて報告する
      （chirico で消えたのは、t64 で名前が変わったライブラリの古い名前、5.15.0-164 の kernel、python3.10、`irqbalance`、`isc-dhcp-client`、`binutils`、`policykit-1` など。`results/chirico.md` §4.2）
+     （oeilvert では、無効だった `ufw` も消えた。noble の `ufw` は `iptables-persistent` と同時に入れられないため。braque と pablo には `iptables-persistent` が無いので、消えない見込み。`results/oeilvert.md` §4.3）
+   - `/etc/apt/sources.list.d/` に `third-party.sources` ができることがある。もとの `sources.list` にあったコメントアウト済みの third-party の行を deb822 に移したもので、`Enabled: no` なら何もしない（oeilvert）
    - `dpkg -l containerd runc` が ~24.04 の版
 4. ✋ 再起動する（`sudo systemctl reboot`）。再起動はユーザーに知らせ、コンソールで見られることを確かめてから行う。
 5. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
-6. ✋ `irqbalance` を入れ直す（`sudo apt-get install -y irqbalance`）。`do-release-upgrade` が「不要になったパッケージ」として purge する（chirico、duchamp）。ユーザーの判断で 24.04 でも使う。3 の `history.log` の `Purge:` に `irqbalance` があることを確かめてから入れる
+6. ✋ `irqbalance` を入れ直す（`sudo apt-get install -y irqbalance`）。`do-release-upgrade` が「不要になったパッケージ」として purge する（chirico、duchamp、oeilvert）。ユーザーの判断で 24.04 でも使う。3 の `history.log` の `Purge:` に `irqbalance` があることを確かめてから入れる
 
 > `do-release-upgrade` は systemd を更新するので、途中で `systemd-networkd` が再起動し、cnidaria の経路（proto 200）がいったん消える。cnidaria v0.1.1 が数秒で入れ直す（§2.2）。
 > 再起動の後、§3.7 の 5（`verify-nodes.sh`）で経路が揃っていることを確かめる。消えるのは Pod 向けの経路で、ホストの経路ではない。新しい SSH の接続ができなくなるのは、上の 2 の openssh-server の入れ替えのためである。
@@ -481,7 +490,7 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
 | 4 | ストリーミング | 対象のノードの Pod に `kubectl --context fraction logs` | ログが読める |
 | 5 | cnidaria | `verify-nodes.sh` | 全項目 PASS（ベースラインと同じ）。cnidaria のログに error が無い |
 | 6 | ホストの nft | ノードで `nft --version`、`sudo nft list tables` | 1.0.9 系。`inet cnidaria` が見え、segfault しない（22.04 の 1.0.2 では落ちた。調査 §3.5） |
-| 7 | iptables | ノードで `sudo iptables -S FORWARD \| head` | policy ACCEPT、または `CNIDARIA-FWD` へのジャンプが先頭にある。**oeilvert**: Docker（`docker.io`）が FORWARD の policy を DROP にしても、`CNIDARIA-FWD` が先頭にあって Pod の通信が通ること |
+| 7 | iptables | ノードで `sudo iptables -S FORWARD \| head`、`sudo ip6tables -S FORWARD \| head` | policy ACCEPT、または `CNIDARIA-FWD` へのジャンプが先頭にある。**oeilvert**: Docker（`docker.io`）が FORWARD の policy を DROP にしても、`CNIDARIA-FWD` が先頭にあって Pod の通信が通ること（oeilvert では v6 が DROP になり、`netcheck.sh` は 168/168 だった） |
 | 8 | ディスクとマウント | `lsblk`、`df` | Longhorn のディスク（/var/lib/longhorn、oeilvert は /var/lib/longhorn2 も）がマウントされている |
 | 9 | ZFS（braque、oeilvert） | `sudo zpool status`、`zfs list` | pool が ONLINE で、`/export` がマウントされている。**`zpool upgrade` はしない** |
 | 10 | multipath と iSCSI | `cat /etc/multipath.conf`、`systemctl is-active iscsid multipathd` | multipathd addon の版のまま（`sd*` の blacklist）。iscsid が active |
@@ -513,8 +522,8 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
    - `concurrent-replica-rebuild-per-node-limit` を `5` に、`replica-auto-balance` を `least-effort` に戻す（2026-10-17 の時点の値）。
    - 戻した後に値を読み直して確かめる。
    - 戻すと、対象のノードの止まっていた replica の再同期が始まる。
-   - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分、duchamp では 52 分で戻した
-   - Prometheus を 2 に戻すと、prometheus-0 と prometheus-1 が更新前と逆のノードで起動することがある（duchamp ではそうなった）。data locality（`best-effort`）で、replica 1 のボリュームの replica が Pod のあるノードへ丸ごとコピーされる。データは失わず、ボリュームは healthy のままである。drain で別のノードへ移った 2 replica のボリューム（duchamp では `open-webui-pipelines`）も、同じ理由で replica が 1 つ移る
+   - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分、duchamp では 52 分、oeilvert では 49 分で戻した
+   - Prometheus を 2 に戻すと、prometheus-0 と prometheus-1 が更新前と逆のノードで起動することがある（duchamp ではそうなった）。data locality（`best-effort`）で、replica 1 のボリュームの replica が Pod のあるノードへ丸ごとコピーされる。データは失わず、ボリュームは healthy のままである。drain で別のノードへ移った 2 replica のボリューム（duchamp では `open-webui-pipelines`、oeilvert では natsumi、hedgedoc の db、fraction-agents の deep-researcher と gmail-agent の 4 つ）も、同じ理由で replica が 1 つ移る
 4. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。**再同期（再構築）が終わるまで待つ**（§3.9 の条件）。
    - 再構築が始まらない、または対象のノードの replica ではなくほかのノードに新しい replica が作られた場合は、作業記録に書く（§2.5 の注意の 100 分を過ぎた場合など）。
    - faulted になったボリュームは自動では直らない。使っている Pod を消してアタッチし直すと auto-salvage が走る（Wiki `entities/oeilvert`）。Pod を消すのは ✋
@@ -631,10 +640,11 @@ chirico で `setup-containerd` が `Net::SSH::HostKeyMismatch: fingerprint SHA25
 
 - 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。名前をハッシュした行（`|1|...`）は、名前が一致した**最初の 1 行の鍵だけ**を返す。作業端末の `~/.ssh/known_hosts` では、1 つのホストの ED25519、RSA、ECDSA が別々のハッシュの行にある。
   ED25519 は ed25519 の gem が無いので読み飛ばされ、次の RSA の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、「一致しない」になる。`ssh` と net-ssh 単体（`Net::SSH::KnownHosts`）は全部の行を読むので通る
-- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み。chirico と duchamp は下の対処をした（duchamp は porkadot を流す前にした。`results/duchamp.md` §1.5）
+- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が ED25519 の 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み（2026-10-17 23:2xZ に sshkit で確かめた）。chirico、duchamp、oeilvert は下の対処をした（duchamp と oeilvert は porkadot を流す前にした。`results/duchamp.md` §1.5、`results/oeilvert.md` §1.5）
 - 対処: そのノードの ECDSA の鍵を、名前をハッシュしない行で `~/.ssh/known_hosts` に足す。sshkit はハッシュしない行を先に見る。
   1. 鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、`<IP> ecdsa-sha2-nistp256 <鍵>` の形にする
-  2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる
+  2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる。
+     known_hosts に ECDSA の行が無いとき（oeilvert、pablo）は、代わりに次の 2 つを確かめる。ノードの `/etc/ssh/ssh_host_ed25519_key.pub` の fingerprint が `ssh-keygen -F <IP> -l` の ED25519 と一致すること（1 の鍵は、その ED25519 で認証した SSH で読んだものになる）。`ssh-keyscan -t ecdsa <IP> | ssh-keygen -lf -` が 1 の fingerprint と一致すること
   3. `~/.ssh/known_hosts` の控えを取ってから 1 行足す。`~/.ssh` は agent のサンドボックスの外なので、外での実行をユーザーに頼む
 - 確かめ方（読み取り）: porkadot の checkout で、`SSHKit::Backend::Netssh::KnownHosts.new.search_for("<IP>", {})` が ECDSA の鍵を返すこと
 - 根本の対処（sshkit の修正か、porkadot での回避）はこのタスクの範囲外で、申し送りにする
