@@ -1,5 +1,5 @@
 resources:
-- flannel
+- cnidaria
 - coredns
 - metallb
 - kubelet-serving-cert-approver
