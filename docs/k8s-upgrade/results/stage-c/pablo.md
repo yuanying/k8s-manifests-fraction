@@ -99,7 +99,22 @@ pablo（192.168.1.134）の containerd を、Ubuntu の `containerd` 2.2.1 か�
 ## 4. 再起動（runbook §3.9）
 
 - 08:39:02 に `systemctl reboot`。kernel の起動は 08:41:00（`uptime -s`）。SSH は 08:41:23 に戻った。Node は 08:41:24 に Ready（SchedulingDisabled）に戻った（Ready の lastTransitionTime）。再起動から Ready まで約 2 分 22 秒（前タスクの約 5 分より短い）
-- 監視（runbook §2.4）の FAIL（VIP / LB）: 無い
+- 監視（runbook §2.4）の FAIL: **VIP が 2 回**（08:39:07Z、08:39:10Z）。LB（192.168.1.200）は 0。段 C の worker の作業で VIP が失敗したのは初めて
+
+### 4.1 再起動で VIP が約 10 秒途切れた
+
+VIP 192.168.1.101 は MetalLB の layer2 の LoadBalancer（`kube-system/porkadot-kubernetes`）で、作業の前は **pablo の speaker が告知していた**（告知するノードは、その Service の Pod の居るノードではなく、`metallb=speaker` のノードの中から MetalLB が選ぶ）。
+
+| 時刻（UTC） | できごと |
+|---|---|
+| 08:39:02 | pablo を再起動 |
+| 08:39:07、08:39:10 | 監視の VIP の `/livez` が失敗（2 回） |
+| 08:39:14 | `nodeAssigned`: `announcing from node "192.168.1.113"`（告知が .113 に移った） |
+| 08:41:46 | `nodeAssigned`: `announcing from node "pablo"`（pablo の speaker が戻り、告知も戻った。このときは失敗なし） |
+
+- 告知しているノードが落ちてから、ほかの speaker が引き取るまで（memberlist で落ちたと分かるまで）の約 10 秒の途切れ。その後は失敗していない
+- chirico・duchamp では起きなかった（VIP を告知していなかった）。作業の後（09:13Z）も VIP は pablo、gated-v4（監視の 192.168.1.200）は chirico、gated-v6 は oeilvert、`h2-sshd` と `natsumi-sshd-aki` は .112、`natsumi-sshd` は .111、`natsumi-sshd-myao` は duchamp が告知している
+- runbook §3.9 に、再起動の前にそのノードが告知している LoadBalancer を読むことと、数秒〜10 秒ほど途切れる見込みを足した
 
 ## 5. 再起動の後の確認（runbook §3.10）
 
@@ -144,7 +159,20 @@ Longhorn の node の condition で `Multipathd`（`MultipathdIsRunning`）と `
 
 ## 7. 次の 1 台へ進む条件（runbook §3.12）
 
-（30 分の様子見の後に埋める）
+3 台目なので、runbook の既定の 30 分をおいて、2026-10-18 09:12Z に確かめた。**すべて満たした**（Longhorn の `replica-auto-balance` は、指示の変更のとおり `disabled` を正しい値として扱う。§6）。
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台の Node が Ready。終えたノードが `containerd://2.3.x`、まだのノードが `containerd://2.2.1` | 8 台 Ready。chirico、duchamp、pablo が `containerd://2.3.6`（v1.29.8）、ほかの 5 台が `containerd://2.2.1` |
+| 終えたノードの cnidaria の Pod が Ready で、`verify-nodes.sh` が全 PASS | `cnidaria-ss9v7` 1/1 Running（restart 4 のまま）。64 PASS、cnidaria のログの error 0 |
+| etcd 3/3 healthy、VIP が応答する | 3/3 healthy、リーダー .112、raft term 23111、index 1402253855 でそろっている。`/readyz` は `ok` |
+| Running / Completed 以外の Pod が、ベースラインから増えていない | 0 個 |
+| Longhorn のボリュームが healthy。再同期が終わっている | attached healthy 23、detached 2（ベースラインのもの）。replica の置き場所は 08:49Z から変わらない |
+| Longhorn の設定。`minio/minio` が 4、Prometheus の `spec.replicas` が 2 | `concurrent-replica-rebuild-per-node-limit` `5`、`node-drain-policy` `block-if-contains-last-replica`（元の値）。`replica-auto-balance` は `disabled`（指示どおり）。MinIO 4/4、Prometheus 2 |
+| `netcheck.sh`、`check-apps.sh` がベースラインと同じ | netcheck 168/168（08:50Z）。`check-apps.sh` は duchamp の後と同じ |
+| 終えたノードが 30 分以上、再起動や NotReady なしで動いている | Ready は 08:41:24Z から変わらない（約 31 分）。起動は 08:41:00Z、boot id も同じ。pablo の DaemonSet の Pod の再起動回数は 08:42Z から増えていない |
+
+監視（runbook §2.4）は 08:36:04Z から 09:12:49Z まで流し、FAIL は VIP の 2 回（§4.1。pablo の再起動の直後）だけ。入れ替え・kubelet の再起動・drain・uncordon の間は 0。pablo の作業の終わりで止めた。
 
 ## 8. 手順書との差、気づいたこと
 
@@ -152,3 +180,4 @@ Longhorn の node の condition で `Multipathd`（`MultipathdIsRunning`）と `
 - §3.11 の 3: coordinator からの指示の変更で、`replica-auto-balance` は `least-effort` に戻さず `disabled` のままにした（§6）。段 C の残りの台でどう扱うか（runbook の §3.11 の 3 と §3.12 の「3 つの設定が元の値」を直すか）は、ユーザーと決めた後に runbook に反映する。この PR では runbook のその部分は変えていない
 - 再起動の直後の `longhorn-csi-plugin` の CrashLoopBackOff（`node-driver-registrar` が `csi.sock` を待つ）は、duchamp でも起きていた（restart 11→14）。1 分ほどで戻る。runbook §3.10 の 4 に足した
 - iSCSI のセッションは drain の後も再起動の後も 0 で、Wiki にある pablo の古いセッションの件は再現しなかった
+- §3.9: pablo が VIP を告知していたので、再起動で VIP が約 10 秒途切れた（§4.1）。runbook は「worker の作業の間は VIP は失敗しない」と読めたので、§3.9 と §5.3 に MetalLB の layer2 の告知の移り変わりによる途切れを足した。残りの台では、oeilvert が gated-v6（`2405:6581:8580:301:ace::200`）を、control-plane が `h2-sshd`・`natsumi-sshd` などを告知している（09:13Z の読み取り。告知先は動くので、各台の再起動の前に読み直す）

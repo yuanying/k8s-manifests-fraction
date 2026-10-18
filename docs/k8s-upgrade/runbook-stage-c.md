@@ -470,6 +470,14 @@ sudo systemctl reboot
 ```
 
 - 古い shim（2.2.1）を 2.3 のものに入れ替え、2.3 で起動から上がることを確かめる（§2.2）
+- **そのノードが MetalLB の layer2 で告知している LoadBalancer は、再起動の直後に約 10 秒途切れる**（ほかの speaker が引き取るまで）。本番の pablo は VIP 192.168.1.101 を告知していて、§2.4 の監視の VIP が 2 回失敗した（`results/stage-c/pablo.md` §4.1）。告知するノードは Service の Pod の置き場所と関係なく動くので、再起動の前に読んで記録する（読み取り）。戻ってきたときの告知の戻りでは失敗しなかった
+
+  ```sh
+  kubectl --context fraction get events -A --field-selector reason=nodeAssigned -o json \
+    | jq -r '.items[]|.metadata.namespace+"/"+.involvedObject.name+" "+.message' | grep '"<ノード>"'
+  ```
+
+  イベントは 1 時間で消える。空なら、speaker のログ（`kubectl --context fraction -n metallb-system logs <そのノードの speaker> | grep serviceAnnounced`）で見る
 - 上がってくるまでの時間は §3.2 の表。20 分ほどは上がってこなくても慌てない
 - **braque**: 再起動の前にユーザーに伝える（§2.5。NFS、LAN から 10.254.0.0/16 と `fraction.cluster` が使えない）。§2.5 の止めてよい時間帯であることを確かめる
 - **duchamp**: 冷却ファンが故障中で、ターボを止めて運用している（`/sys/devices/system/cpu/intel_pstate/no_turbo` を `1`。Wiki の `wiki/topics/自宅クラスター.md` の duchamp の節）。この設定は再起動で戻り、永続化するものは無い。再起動の前に温度（`cat /sys/class/hwmon/hwmon*/temp1_input`）と `no_turbo` を記録し、**SSH が戻ったらすぐに**（cnidaria の Ready を待たずに）`echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo` で止め直し、`cat` で `1` を確かめる（2026-10-18 のユーザー承認）。高温のまま再起動するとキー入力待ちで止まることがあるので、10 分たっても SSH が戻らなければ止めて報告する（物理作業が要る）
@@ -686,7 +694,8 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 
 ### 5.3 再起動の間の VIP の途切れ
 
-dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
+dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
+ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
 原因: VIP は MetalLB の LoadBalancer の Service `kube-system/porkadot-kubernetes`（`externalTrafficPolicy: Cluster`、selector は kube-apiserver の Pod）である。
 ノードを再起動し始めてから、そのノードの apiserver の Pod が Endpoints から外れるまでの間、kube-proxy がそこにも振り分けるので、要求の一部が失敗する。
