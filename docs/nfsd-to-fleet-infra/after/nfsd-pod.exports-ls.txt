@@ -1,0 +1,23 @@
+# kubectl --context fraction -n nfsd exec nfsd-vt5k2 -- ls -la /exports ; df -h /exports   (2026-10-18T01:37:09Z)
+total 76
+drwxr-xr-x 18 root root   19 Oct 16 14:13 .
+drwxr-xr-x  1 root root 4096 Oct 18 01:36 ..
+drwxr-xr-x  4  501 ftp     4 Oct  4 11:07 aki
+drwxr-xr-x 16 root root   17 Dec  6  2022 backups
+drwxr-xr-x  4 root root    5 May 15  2024 codimd
+drwxr-xr-x  4 root root    4 Dec  3  2019 codimd-test
+drwxr-xr-x 15  501 ftp    17 Oct 17 01:21 data
+drwx------  3  501 ftp     3 Oct 17 21:00 deep-researcher
+drwxr-xr-x  3 1000 1000    3 Mar 26  2023 docker-registry
+drwxr-xr-x 17   33 tape   19 Oct 17 01:21 h
+-rw-r--r--  1 root root   16 Oct 18 01:36 index.html
+drwxr-xr-x  4 root root    4 Nov 21  2018 mail
+drwxr-xr-x  8 root root    8 Apr  6  2021 movies
+drwxr-xr-x  4  501 ftp     4 Sep 30 02:56 myao
+drwxr-xr-x  4  501 ftp     4 Sep 24 20:30 natsumi
+drwx------  2 root root    4 Apr  8  2020 secrets
+drwxrwxrwx 28  501 ftp    30 Oct 17 01:21 sites
+drwxr-xr-x  3  501 ftp     3 Apr  3  2023 test
+drwxr-xr-x  5 root root    5 May 16  2024 tmp
+Filesystem      Size  Used Avail Use% Mounted on
+tank1/export     15T  5.1T  9.4T  36% /exports

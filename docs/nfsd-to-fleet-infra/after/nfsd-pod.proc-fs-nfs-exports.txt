@@ -1,0 +1,3 @@
+# Version 1.1
+# Path Client(Flags) # IPs
+/exports	*(rw,insecure,no_root_squash,sync,wdelay,no_subtree_check,fsid=0,sec=1)

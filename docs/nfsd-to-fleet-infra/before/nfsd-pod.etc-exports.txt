@@ -1,0 +1,3 @@
+# kubectl --context fraction -n nfsd exec nfsd-wxsnb -- cat /etc/exports   (2026-10-18T01:35:32Z)
+/exports *(rw,fsid=0,insecure,no_root_squash)
+/ *(rw,fsid=0,insecure,no_root_squash)
