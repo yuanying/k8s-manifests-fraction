@@ -139,12 +139,15 @@ drain が要るのは、その後の**ノードの再起動**（§3.9）のほ�
 
 そこで、worker は次の形にする（dev の .123 で通した形）。
 
-1. drain せずに、Docker のリポジトリを足し、`containerd.io` を入れ、kubelet を再起動する（§3.3〜§3.7）
-2. 確認が済んでから、前タスクの手順で Longhorn の設定を切り替えて drain し（§3.8）、再起動する（§3.9）
+1. drain せずに、Docker のリポジトリを足し、`containerd.io` を入れる（§3.3〜§3.6）
+2. Longhorn の `concurrent-replica-rebuild-per-node-limit` と `replica-auto-balance` を切り替えてから、kubelet を再起動する（§3.7）
+3. 確認が済んでから、前タスクの手順で最後の replica を使う workload を止めて drain し（§3.8）、再起動する（§3.9）
+
+Longhorn の 2 つの設定を kubelet の再起動の前に切り替えるのは、**kubelet の再起動で Node が一瞬 NotReady になり、Longhorn がそのノードの replica を退かそうとする**ためである。本番の duchamp では、kubelet の再起動（07:52:37Z）で Node に `NodeNotReady` が出て、Longhorn の node も 07:52:45Z まで Ready でなくなった。その間に `replica-auto-balance`（`least-effort`）が `Node duchamp is not ready or schedulable, replica ... could get evicted` として、2 つのボリュームの replica を pablo に作り直した（`results/stage-c/duchamp.md` §3.1）。chirico では起きなかった
 
 この形にした理由:
 
-- **Longhorn の設定を切り替えている時間と、replica 1 のボリュームが止まる時間が短くなる。** 切り替えはクラスタ全体にかかり、その間はほかのノードで replica が壊れても作り直されない（OS 更新の手順書 §2.5）。止まった replica は 100 分（`replica-replenishment-wait-interval`）以内に再同期させたい。drain から uncordon までを、再起動とその確認だけにできる
+- **Longhorn の設定を切り替えている時間と、replica 1 のボリュームが止まる時間が短くなる。** 切り替えはクラスタ全体にかかり、その間はほかのノードで replica が壊れても作り直されない（OS 更新の手順書 §2.5）。止まった replica は 100 分（`replica-replenishment-wait-interval`）以内に再同期させたい。切り替えから戻すまでを、kubelet の再起動と drain・再起動とその確認だけにできる（入れ替えは切り替えの前に済ませる）
 - **入れ替えでつまずいたら、drain する前に止まれる。** そのときは workload を一度も動かさずに戻せる（ロールバックも drain は要らない。§7）
 - drain そのものは計画 §9.3 の決定どおり行い、手順は前タスクのものをそのまま使う
 
@@ -208,7 +211,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 
 前タスクの手順をそのまま使う（OS 更新の手順書 §2.4、§2.5、§3.3 の 5〜9、§3.8 の 2〜4）。要点:
 
-- drain の前に、`concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled` にする（クラスタ全体にかかる。1 台の作業の間だけ。途中でやめても必ず戻す）
+- kubelet の再起動（§3.7）の前に、`concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled` にする（control-plane は Longhorn の node ではないので要らない。クラスタ全体にかかる。1 台の作業の間だけ。途中でやめても必ず戻す）
 - 最後の replica を持つノードでは、`node-drain-policy` を `allow-if-replica-is-stopped` にし、その replica を使う workload を止めてから drain する
 - uncordon して Longhorn の node が Ready / schedulable に戻ってから、設定を元に戻す。`replica-replenishment-wait-interval`（6000 秒 = 100 分）以内に戻せば、止まった replica をそのまま再同期する
 
@@ -224,7 +227,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
 **この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
-本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
 
 読み直し方:
 
@@ -275,8 +278,8 @@ oeilvert を braque の後にするので、oeilvert の作業中（devbox の�
 | 3.3 | 事前確認 | なし | — | 5 分 |
 | 3.4 | Docker のリポジトリ、鍵、pin | なし | 数秒 | 数分 |
 | 3.5 | `containerd.io` を入れる | なし | 6 秒 | 1 分 |
-| 3.6〜3.7 | 確認、kubelet の再起動 | なし | 1 分 | 5 分 |
-| 3.8 | Longhorn の設定、workload を止める、drain | する | 1 秒〜37 秒 | 10〜30 分（Longhorn の detach を待つ） |
+| 3.6〜3.7 | 確認、Longhorn の 2 つの設定、kubelet の再起動 | なし | 1 分 | 5 分 |
+| 3.8 | `node-drain-policy`、workload を止める、drain | する | 1 秒〜37 秒 | 10〜30 分（Longhorn の detach を待つ） |
 | 3.9 | 再起動 | — | 2 分 | 2〜20 分（前タスクでは chirico 約 5 分、duchamp 約 17 分、oeilvert 約 2 分、braque 約 3 分、pablo 約 5 分） |
 | 3.10 | 再起動の後の確認（cnidaria が Ready になるまで待つ） | — | 1〜2 分 | 15 分 |
 | 3.11 | uncordon、Longhorn の設定を戻し、再同期を待つ | — | 1 分 | 10〜30 分 |
@@ -400,22 +403,7 @@ apt-cache policy containerd.io                     # Installed と Candidate が
 
 ### 3.7 kubelet を再起動する ✋
 
-```sh
-sudo systemctl restart kubelet
-```
-
-30 秒ほど待ってから確かめる。
-
-- `kubectl --context fraction get node <ノード> -o wide`: Ready、CONTAINER-RUNTIME が `containerd://2.3.x`
-- `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>`: すべて Running。**§3.3 で控えた再起動回数から増えていない**（dev では増えなかった）。増えていれば止めて調べる
-- `sudo journalctl -u kubelet --since '-5min' --no-pager | grep -iE 'error|fail' | tail`: CRI と cgroup のエラーが続いていない
-- §2.4 の監視に、この間の失敗が無い（dev では入れ替えと kubelet の再起動の間に失敗は無かった）
-
-ここで問題があれば、drain せずに §7.1 で戻せる。
-
-### 3.8 drain する ✋
-
-ここからノードの再起動の準備に入る。§2.6 のとおり、前タスクの手順をそのまま使う。
+kubelet の再起動で Node が一瞬 NotReady になり、Longhorn が auto-balance でそのノードの replica をほかのノードへ作り直すことがある（§2.2。本番の duchamp で起きた）。だから、**kubelet を再起動する前に** Longhorn の 2 つの設定を切り替える。ここからノードの再起動の準備に入る。§2.6 のとおり、前タスクの手順をそのまま使う。
 
 1. ✋ `infra-admin` のトークンを発行する。
 2. ✋ Longhorn の設定を変える。変える前の値を記録してから。
@@ -425,16 +413,41 @@ sudo systemctl restart kubelet
      concurrent-replica-rebuild-per-node-limit replica-auto-balance node-drain-policy
    kubectl-admin -n longhorn-system patch settings.longhorn.io concurrent-replica-rebuild-per-node-limit --type=merge -p '{"value":"0"}'
    kubectl-admin -n longhorn-system patch settings.longhorn.io replica-auto-balance --type=merge -p '{"value":"disabled"}'
-   # chirico、duchamp、oeilvert だけ
-   kubectl-admin -n longhorn-system patch settings.longhorn.io node-drain-policy --type=merge -p '{"value":"allow-if-replica-is-stopped"}'
    kubectl --context fraction -n longhorn-system get settings.longhorn.io \
      concurrent-replica-rebuild-per-node-limit replica-auto-balance node-drain-policy   # APPLIED が true
    ```
 
-3. ✋ 最後の replica を使う workload を止める（§2.6 の表を読み直してから）。
+   - ここで止めることになった（§3.7 の確認で問題が出て §7.1 で戻すなど）ときも、この 2 つは必ず元の値に戻す（§3.11 の 3）
+3. ✋ kubelet を再起動する。
+
+   ```sh
+   sudo systemctl restart kubelet
+   ```
+
+30 秒ほど待ってから確かめる。
+
+- `kubectl --context fraction get node <ノード> -o wide`: Ready、CONTAINER-RUNTIME が `containerd://2.3.x`
+- `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>`: すべて Running。**§3.3 で控えた再起動回数から増えていない**（dev では増えなかった）。増えていれば止めて調べる
+- `sudo journalctl -u kubelet --since '-5min' --no-pager | grep -iE 'error|fail' | tail`: CRI と cgroup のエラーが続いていない
+- §2.4 の監視に、この間の失敗が無い（dev では入れ替えと kubelet の再起動の間に失敗は無かった）
+
+ここで問題があれば、drain せずに §7.1 で戻せる。戻すときも、2 で切り替えた Longhorn の設定を元に戻す。
+
+### 3.8 drain する ✋
+
+§3.7 の 1 と 2（トークンと Longhorn の 2 つの設定）は済んでいる。
+
+1. ✋ 対象のノードに最後の replica を持つボリュームがあるときだけ（§2.6 の表を読み直して決める。2026-10-18 の表では chirico、duchamp、oeilvert だったが、chirico の後に duchamp は無くなった）、`node-drain-policy` を変える。
+
+   ```sh
+   kubectl-admin -n longhorn-system patch settings.longhorn.io node-drain-policy --type=merge -p '{"value":"allow-if-replica-is-stopped"}'
+   kubectl --context fraction -n longhorn-system get settings.longhorn.io node-drain-policy   # APPLIED が true
+   ```
+
+2. ✋ 最後の replica を使う workload を止める（§2.6 の表を読み直してから）。
    - chirico、duchamp: `kubectl-admin -n monitoring patch prometheus kube-prometheus --type=merge -p '{"spec":{"replicas":0}}'`。対象のノードの prometheus のボリュームが detach され、replica が stopped になるのを待つ
    - oeilvert: `kubectl-admin -n minio scale statefulset minio --replicas=0`。4 つのボリュームが detach されるのを待つ
-4. ✋ cordon と drain。
+3. ✋ cordon と drain。
 
    ```sh
    kubectl-admin cordon <ノード>
@@ -446,7 +459,7 @@ sudo systemctl restart kubelet
 
    - コントローラを持たない Pod が見つかったら、消してよいかをユーザーに確かめる（runbook から外れる扱い）。よければ `--force` を足す（dev の .123 でも `e2e-np/db` で止まった）
    - 止まったときの調べ方は OS 更新の手順書 §3.3 の 8 と同じ（`kubectl --context fraction get pdb -A`、longhorn-manager のログの `removing <ノード> PDB is blocked: replica ...`）
-5. drain の後、対象のノードの Longhorn のボリュームが detach された（または他のノードへ移った）こと、対象のノードの replica の代わりがほかのノードに作られていないことを確かめる。drain の開始と終わりの時刻を記録する。
+4. drain の後、対象のノードの Longhorn のボリュームが detach された（または他のノードへ移った）こと、対象のノードの replica の代わりがほかのノードに作られていないことを確かめる。drain の開始と終わりの時刻を記録する。
 
 ノードごとの追加の確認は OS 更新の手順書 §3.3 の「ノードごとの追加の作業」と同じ（oeilvert の devbox と自動再起動の時間帯、braque の `zfs-import-cache` が enabled であることと §2.5 の時間帯、pablo の share-manager・fs の h2・`docker/registry` が他のノードで Running に戻ったこと）。
 
@@ -459,6 +472,7 @@ sudo systemctl reboot
 - 古い shim（2.2.1）を 2.3 のものに入れ替え、2.3 で起動から上がることを確かめる（§2.2）
 - 上がってくるまでの時間は §3.2 の表。20 分ほどは上がってこなくても慌てない
 - **braque**: 再起動の前にユーザーに伝える（§2.5。NFS、LAN から 10.254.0.0/16 と `fraction.cluster` が使えない）。§2.5 の止めてよい時間帯であることを確かめる
+- **duchamp**: 冷却ファンが故障中で、ターボを止めて運用している（`/sys/devices/system/cpu/intel_pstate/no_turbo` を `1`。Wiki の `wiki/topics/自宅クラスター.md` の duchamp の節）。この設定は再起動で戻り、永続化するものは無い。再起動の前に温度（`cat /sys/class/hwmon/hwmon*/temp1_input`）と `no_turbo` を記録し、**SSH が戻ったらすぐに**（cnidaria の Ready を待たずに）`echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo` で止め直し、`cat` で `1` を確かめる（2026-10-18 のユーザー承認）。高温のまま再起動するとキー入力待ちで止まることがあるので、10 分たっても SSH が戻らなければ止めて報告する（物理作業が要る）
 - 再起動の時刻と、Node が Ready に戻った時刻を記録する
 
 ### 3.10 再起動の後の確認
@@ -492,8 +506,8 @@ sudo systemctl reboot
 OS 更新の手順書 §3.8 と同じ。
 
 1. ✋ `kubectl-admin uncordon <ノード>`（§3.10 の 2 と 3 が通ってから）。
-2. ✋ §3.8 の 3 で止めたものを戻す。chirico・duchamp は Prometheus リソースの `spec.replicas` を 2 に、oeilvert は `minio/minio` を 4 に。Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
-3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ Longhorn の設定を §3.8 の 2 で記録した値に戻す（2026-10-18 は `5`、`least-effort`、`block-if-contains-last-replica`）。読み直して APPLIED が true であること。drain から戻すまでの時間を記録する（100 分を過ぎると、止まった replica を使わずに作り直すことがある）。
+2. ✋ §3.8 の 2 で止めたものを戻す。chirico・duchamp は Prometheus リソースの `spec.replicas` を 2 に、oeilvert は `minio/minio` を 4 に。Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
+3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ Longhorn の設定を §3.7 の 2 で記録した値に戻す（2026-10-18 は `5`、`least-effort`、`block-if-contains-last-replica`。`node-drain-policy` は §3.8 の 1 で変えたときだけ）。読み直して APPLIED が true であること。切り替えてから戻すまでの時間を記録する（100 分を過ぎると、止まった replica を使わずに作り直すことがある）。
 4. Longhorn: 対象のノードの replica が running に戻り、再同期が終わるまで待つ。degraded のボリュームがベースラインから増えていないこと。本番の chirico では、設定を戻してから全部 healthy になるまで 16 分かかった。data locality で replica の置き場所が変わることがある（§2.6）ので、終わった後の replica の置き場所を記録し、同じボリュームの replica が同じノードに 2 つ載っていないことを見る（`kubectl --context fraction -n longhorn-system get replicas.longhorn.io -o json | jq -r '.items[]|.spec.volumeName+" "+.spec.nodeID' | sort | uniq -d` が空）。
 5. Running / Completed 以外の Pod が、ベースラインから増えていないこと。
 6. ✋ `netcheck.sh` と `check-apps.sh` を流す。ベースラインと同じであること。
@@ -577,7 +591,7 @@ Ubuntu の `docker.io` は `containerd (>= 1.2.6-0ubuntu1~)` に版つきで依�
    - **`apt purge` も `apt autoremove --purge` もしない**（§8.7）。`rc` の `containerd.io` 1.6.8 を purge すると `/etc/containerd/config.toml` が消える。`rc` の `docker-ce` 20.10.18 も、まとめて purge する片付けをしない
    - `ubuntu-fan`、`pigz`、`bridge-utils` は自動で入ったものなので、apt が `autoremove` を勧める。**`autoremove` は流さない**（片付けは段 C の後にユーザーと決める）
 4. §3.6 の確認を行う。
-5. ✋ `sudo systemctl restart kubelet`（§3.7。Pod の再起動回数が増えていないこと）。
+5. ✋ §3.7 の 1〜3（トークン、Longhorn の 2 つの設定の切り替え、`sudo systemctl restart kubelet`）。Pod の再起動回数が増えていないこと。
 6. Docker を確かめる。
    - `docker version` のサーバーが `docker-ce` の版、Docker Root Dir が `/var/lib/docker`、Cgroup Driver が systemd、containerd の版が 2.3.x
    - **`docker info` の Storage Driver が 4.1 の控えと同じ（2026-10-18 は overlay2）**。Docker 29 は、新しく入れたときの既定が containerd のイメージストア（dev で新しく入れた Docker では overlayfs になった）なので、変わっていないことを必ず見る。変わっていると、`/var/lib/docker` の overlay2 のイメージが見えなくなる。変わっていたら devbox を起こさずに止め、ユーザーと決める（dev では `/etc/docker/daemon.json` に `"features": {"containerd-snapshotter": false}` を足して overlay2 にした。runbook から外れる操作）
