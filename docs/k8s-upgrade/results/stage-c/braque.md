@@ -149,7 +149,20 @@ braque は ZFS（`tank1`）と NFS の nfsd（DaemonSet `nfsd/nfsd`）を持つ�
 
 ## 7. 次の 1 台へ進む条件（runbook §3.12）
 
-（作業中）
+4 台目なので、runbook の既定の 30 分をおいて、2026-10-18 09:55Z に確かめた。**すべて満たした**（Longhorn の `replica-auto-balance` は `disabled` を正しい値として扱う。runbook §2.6）。
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台の Node が Ready。終えたノードが `containerd://2.3.x`、まだのノードが `containerd://2.2.1` | 8 台 Ready。braque、chirico、duchamp、pablo が `containerd://2.3.6`（v1.29.8）、oeilvert と control-plane の 3 台が `containerd://2.2.1` |
+| 終えたノードの cnidaria の Pod が Ready で、`verify-nodes.sh` が全 PASS | `cnidaria-q8bhw` 1/1 Running（restart 3 のまま）。64 PASS、cnidaria のログの error 0 |
+| etcd 3/3 healthy、VIP が応答する | 3/3 healthy、リーダー .112、raft term 23111、index 1402266906 でそろっている。`/readyz` は `ok` |
+| Running / Completed 以外の Pod が、ベースラインから増えていない | 0 個 |
+| Longhorn のボリュームが healthy。再同期が終わっている | attached healthy 23、detached 2（ベースラインのもの）。replica の一覧は作業の前と同じ |
+| Longhorn の設定。`minio/minio` が 4、Prometheus の `spec.replicas` が 2 | `concurrent-replica-rebuild-per-node-limit` `5`、`node-drain-policy` `block-if-contains-last-replica`（元の値）。`replica-auto-balance` は `disabled`（段 C の間の扱い）。MinIO 4/4、Prometheus 2 |
+| `netcheck.sh`、`check-apps.sh` がベースラインと同じ | netcheck 168/168（09:26Z）。`check-apps.sh` は事前（09:17Z）と 09:55Z で同じ |
+| 終えたノードが 30 分以上、再起動や NotReady なしで動いている | Ready は 09:24:31Z から変わらない（約 30 分）。boot id も同じ。braque の DaemonSet の Pod の再起動回数は 09:25Z から増えていない。`/export` は `tank1/export`、pool は healthy。`movies` の 3 つの Pod も 09:24Z の 1 回から増えていない |
+
+監視（runbook §2.4）は 09:16:55Z から 09:55:22Z まで流し、**FAIL は 0**（入れ替え、kubelet の再起動、drain、再起動、uncordon の間を通して）。braque の作業の終わりで止めた。
 
 ## 8. 手順書との差、気づいたこと
 
