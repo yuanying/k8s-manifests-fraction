@@ -1,0 +1,3 @@
+# kubectl --context fraction -n nfsd exec nfsd-vt5k2 -- exportfs -v   (2026-10-18T01:37:08Z)
+/exports      	<world>(sync,wdelay,hide,no_subtree_check,fsid=0,sec=sys,rw,insecure,no_root_squash,no_all_squash)
+/             	<world>(sync,wdelay,hide,no_subtree_check,fsid=0,sec=sys,rw,insecure,no_root_squash,no_all_squash)

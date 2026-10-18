@@ -1,4 +1,0 @@
-commonLabels:
-  region: fraction
-bases:
-- ../base/nfsd

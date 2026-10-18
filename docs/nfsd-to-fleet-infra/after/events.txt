@@ -1,0 +1,8 @@
+FIRST                  OBJ          REASON             MSG
+<nil>                  nfsd-vt5k2   Scheduled          Successfully assigned nfsd/nfsd-vt5k2 to braque
+2026-10-18T01:36:56Z   nfsd-wxsnb   Killing            Stopping container nfsd
+2026-10-18T01:36:56Z   nfsd         SuccessfulDelete   Deleted pod: nfsd-wxsnb
+2026-10-18T01:36:57Z   nfsd-vt5k2   Pulled             Container image "registry.k8s.io/e2e-test-images/volume/nfs:1.6.0@sha256:fd050af01687ef04d87bcef58b9e27f8e74cde52293113cfb35e63a0253e29c2" already present on machine
+2026-10-18T01:36:57Z   nfsd         SuccessfulCreate   Created pod: nfsd-vt5k2
+2026-10-18T01:36:58Z   nfsd-vt5k2   Created            Created container nfsd
+2026-10-18T01:36:58Z   nfsd-vt5k2   Started            Started container nfsd

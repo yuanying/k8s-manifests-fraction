@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"region":"fraction"},"name":"nfs","namespace":"nfsd"},"spec":{"ports":[{"name":"nfs","port":2049},{"name":"mountd","port":20048},{"name":"rpcbind","port":111}],"selector":{"app":"nfsd","region":"fraction"}}}
+  creationTimestamp: "2022-09-19T05:44:12Z"
+  labels:
+    region: fraction
+  name: nfs
+  namespace: nfsd
+  resourceVersion: "1144813757"
+  uid: d73a1f84-9a31-4243-a84d-f75701e97fac
+spec:
+  clusterIP: 10.254.0.48
+  clusterIPs:
+  - 10.254.0.48
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: nfs
+    port: 2049
+    protocol: TCP
+    targetPort: 2049
+  - name: mountd
+    port: 20048
+    protocol: TCP
+    targetPort: 20048
+  - name: rpcbind
+    port: 111
+    protocol: TCP
+    targetPort: 111
+  selector:
+    app: nfsd
+    region: fraction
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

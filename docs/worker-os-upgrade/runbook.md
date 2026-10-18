@@ -328,6 +328,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
    - 24.04 用の Docker のリポジトリには 1.6.8 が無い（1.6.28 以降）。この deb があれば、24.04 の上でも `containerd.io` 1.6.8 に戻せる（dev で確認。§4.2）
    - oeilvert には Docker のリポジトリが無い。`/var/cache/apt/archives/` に `containerd.io_1.6.8-1_amd64.deb` が残っていればそれを控える。無ければ、ほかのノードで落とした deb を写しておく（oeilvert ではキャッシュに無く、chirico の `/root` の deb を写した。sha256 を比べる）
    - braque では、nfsd のイメージ（`gcr.io/google_containers/volume-nfs:0.8`）も控えた（`sudo ctr -n k8s.io images export /root/volume-nfs-0.8.tar gcr.io/google_containers/volume-nfs:0.8`）。レジストリが Docker の schema 1 でしか返さず、containerd 2.x では pull し直せないため。置き換えの後も containerd の中のイメージは残り、そのまま動いた（`results/braque.md` §1.3）
+     - 2026-10-18 以降、nfsd は fleet-infra の `infrastructure/nfsd` で管理し、containerd 2.x で pull できるイメージ（`registry.k8s.io/e2e-test-images/volume/nfs:1.6.0`）に替えた（`docs/nfsd-to-fleet-infra/record.md`）。次からはこの控えは要らない
 1. ✋ Docker の apt リポジトリを外す（braque、chirico、duchamp、pablo）。`/etc/apt/sources.list.d/docker.list` を、apt が読まない名前に変えて残す（戻せるように）。
    - これを先にしないと、次の `full-upgrade` で Docker の `containerd.io` 2.4.2 が入る（調査 §1）。
    - `containerd.io` を hold しても代わりにならない。dev では、hold していても Docker の jammy リポジトリに 2.4.2 があるため、`do-release-upgrade` が「Please install all available updates for your release before upgrading」で更新を拒否した。リポジトリを外して回避した。
