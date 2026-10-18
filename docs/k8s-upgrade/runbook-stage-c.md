@@ -227,7 +227,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
 **この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
-本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
 
 読み直し方:
 
@@ -470,6 +470,14 @@ sudo systemctl reboot
 ```
 
 - 古い shim（2.2.1）を 2.3 のものに入れ替え、2.3 で起動から上がることを確かめる（§2.2）
+- **そのノードが MetalLB の layer2 で告知している LoadBalancer は、再起動の直後に約 10 秒途切れる**（ほかの speaker が引き取るまで）。本番の pablo は VIP 192.168.1.101 を告知していて、§2.4 の監視の VIP が 2 回失敗した（`results/stage-c/pablo.md` §4.1）。告知するノードは Service の Pod の置き場所と関係なく動くので、再起動の前に読んで記録する（読み取り）。戻ってきたときの告知の戻りでは失敗しなかった
+
+  ```sh
+  kubectl --context fraction get events -A --field-selector reason=nodeAssigned -o json \
+    | jq -r '.items[]|.metadata.namespace+"/"+.involvedObject.name+" "+.message' | grep '"<ノード>"'
+  ```
+
+  イベントは 1 時間で消える。空なら、speaker のログ（`kubectl --context fraction -n metallb-system logs <そのノードの speaker> | grep serviceAnnounced`）で見る
 - 上がってくるまでの時間は §3.2 の表。20 分ほどは上がってこなくても慌てない
 - **braque**: 再起動の前にユーザーに伝える（§2.5。NFS、LAN から 10.254.0.0/16 と `fraction.cluster` が使えない）。§2.5 の止めてよい時間帯であることを確かめる
 - **duchamp**: 冷却ファンが故障中で、ターボを止めて運用している（`/sys/devices/system/cpu/intel_pstate/no_turbo` を `1`。Wiki の `wiki/topics/自宅クラスター.md` の duchamp の節）。この設定は再起動で戻り、永続化するものは無い。再起動の前に温度（`cat /sys/class/hwmon/hwmon*/temp1_input`）と `no_turbo` を記録し、**SSH が戻ったらすぐに**（cnidaria の Ready を待たずに）`echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo` で止め直し、`cat` で `1` を確かめる（2026-10-18 のユーザー承認）。高温のまま再起動するとキー入力待ちで止まることがあるので、10 分たっても SSH が戻らなければ止めて報告する（物理作業が要る）
@@ -489,7 +497,7 @@ sudo systemctl reboot
 | 1 | Node | `kubectl --context fraction get node <ノード> -o wide --show-labels` | Ready（SchedulingDisabled）。CONTAINER-RUNTIME が `containerd://2.3.x`、VERSION が v1.29.8。ラベルが残っている |
 | 2 | cnidaria | `kubectl --context fraction -n kube-system get pods -o wide --field-selector spec.nodeName=<ノード> -l app.kubernetes.io/name=cnidaria` | **1/1 Running（Ready）**。CrashLoopBackOff になっていたら、`kubectl --context fraction -n kube-system logs <Pod> --previous` を記録し、Ready になるまで待つ。ログが `dial tcp 10.254.0.1:443: connect: connection refused` で、数分のうちに Ready に戻れば想定どおり。ほかのエラーか、5 分たっても戻らなければ止める |
 | 3 | cnidaria の経路と規則 | `verify-nodes.sh` | 全項目 PASS（ベースラインと同じ）。cnidaria のログに、2 の起動の直後のもの以外の error が無い |
-| 4 | DaemonSet の Pod | `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>` | 全部 Running。再起動の分だけ再起動回数が 1 増えるのはよい。MetalLB の speaker は 2 と同じ理由で数回 CrashLoopBackOff になってから戻る。数分待って Running に戻らなければ止める |
+| 4 | DaemonSet の Pod | `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>` | 全部 Running。再起動の分だけ再起動回数が 1 増えるのはよい。MetalLB の speaker は 2 と同じ理由で数回 CrashLoopBackOff になってから戻る。`longhorn-csi-plugin` も、longhorn-manager が上がるまで `node-driver-registrar` が `/csi/csi.sock` に繋がらず（`Error connecting to CSI driver`）、数回 CrashLoopBackOff になってから 3/3 に戻る（本番の duchamp で 3 回、pablo で 4 回）。数分待って Running に戻らなければ止める |
 | 5 | ストリーミング | 対象のノードの Pod に `kubectl --context fraction logs` | ログが読める |
 | 6 | iptables | ノードで `sudo iptables -S FORWARD \| head -3`、`sudo ip6tables -S FORWARD \| head -3` | `CNIDARIA-FWD` へのジャンプが先頭（oeilvert は §4.3） |
 | 7 | ディスク、ZFS | `lsblk`、`df`。braque と oeilvert は `sudo zpool status`、`findmnt /export`（braque） | Longhorn のディスクがマウントされている。pool が ONLINE。**braque は `tank1` が取り込まれ、`/export` が `tank1/export` であることを真っ先に見る**（OS 更新の手順書 §3.4 の 10） |
@@ -686,7 +694,8 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 
 ### 5.3 再起動の間の VIP の途切れ
 
-dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
+dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
+ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
 原因: VIP は MetalLB の LoadBalancer の Service `kube-system/porkadot-kubernetes`（`externalTrafficPolicy: Cluster`、selector は kube-apiserver の Pod）である。
 ノードを再起動し始めてから、そのノードの apiserver の Pod が Endpoints から外れるまでの間、kube-proxy がそこにも振り分けるので、要求の一部が失敗する。
