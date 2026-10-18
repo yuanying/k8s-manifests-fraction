@@ -4,7 +4,7 @@
 containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（2026-10-18 のユーザー指示「containerd は早い段階で上げておきたい」）。
 根拠は同じディレクトリの `survey-2026-10.md`（現状調査）にある。各段の実施記録は、段ごとに `results/` に足していく。
 
-**この計画はユーザーの承認を得るためのものであり、承認までは本番に何もしない。** 決めてほしい点は §9 にまとめた。
+**この計画は 2026-10-18 にユーザーの承認を得た。** 承認のときに決まったことは §9、本筋の段のほかに範囲に入れた作業をいつどこで行うかは §10 にある。本番への書き込みは、§9.1 の節目ごとに承認を取ってから行う。
 
 ## 1. 方針
 
@@ -28,12 +28,13 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 | 5 | 0.34.x | v1.34.12 | **3.6.15-0**（マイナー更新） | v1.12.1 | 2.3.x | **段の後に Longhorn 1.11.2 → 1.12.x → 1.13.x**（§4） |
 | 6 | 0.35.x | v1.35.9 | 3.6.15-0 | v1.13.1 | 2.3.x | 段の前に全台が cgroup v2 であることを確かめる |
 | 7 | 0.36.x | v1.36.5 | 3.6.15-0 | v1.14.2 | 2.3.x | |
-| 8 | 0.37.x | v1.37.1 | **3.7.x**（マイナー更新） | v1.14.6 | 2.3.x | 段の後に非クリティカルなコンポーネントを最新へ（§8） |
+| 8 | 0.37.x | v1.37.1 | **3.7.x**（マイナー更新） | **v1.14.7**（CoreDNS の最新） | 2.3.x | 段の後に非クリティカルなコンポーネントを最新へ（§8）、containerd の config を version 4 に（§10） |
 
 - K8s・crictl・CoreDNS の版は porkadot 側の調査（`survey-2026-10.md` §6）の値。各段の前に最新パッチを確かめ直す。
 - **etcd は kubeadm の既定値を追わない。** etcd は 3.6 へは 3.5.26 以上から、3.7 へは 3.6.11 以上からしか上げられない。kubeadm の既定（1.31〜1.33 の 3.5.24、1.36 の 3.6.8）はこの条件を満たさない。そこで 1.30 で 3.5 の最新パッチに上げて 1.31〜1.33 の間寝かせ、1.34 で 3.6 の最新パッチ、1.37 で 3.7 にする。マイナー更新は 2 回で済む。
 - 1.37 の etcd を 3.7.0-0（kubeadm の既定）と 3.7.2-0（3.7 の最新パッチ）のどちらにするかは、段 8 の時点の最新を見て porkadot の 0.37 の PR で決める。
-- containerd の 2.3.x は、段 C の時点で Docker のリポジトリにある 2.3 系の最新パッチ（2026-10-18 は 2.3.6、runc 1.5.1 同梱）。段 1 以降で 2.3 のパッチを上げるかは、K8s の段とは別に決める（§5.8）。
+- containerd の 2.3.x は、段 C の時点で Docker のリポジトリにある 2.3 系の最新パッチ（2026-10-18 は 2.3.6、runc 1.5.1 同梱）。段 1 以降の 2.3 のパッチは §5.8。
+- **CoreDNS は段 1〜7 で kubeadm の既定に合わせ、段 8 では kubeadm の既定（v1.14.6）ではなく CoreDNS の最新（2026-10-18 は v1.14.7）にする**（ユーザー指示）。kubeadm の Corefile の改善（`cache` の `disable success <domain>` / `disable denial <domain>`。`survey-2026-10.md` §6）も段 8 で一緒に入れる。段 8 の時点で CoreDNS の最新と `registry.k8s.io/coredns/coredns` のタグ（arm64 を含む）を確かめ直す。
 
 ## 3. コンポーネントの分類
 
@@ -43,7 +44,7 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 |---|---|---|---|---|
 | etcd | 3.5.12 | **クリティカル** | 1 マイナーずつ、かつ前の系列の新しいパッチからしか上げられない（[3.6 の zombie members](https://etcd.io/blog/2025/zombie_members_upgrade/)、[3.7 の upgrade](https://etcd.io/docs/v3.7/upgrades/upgrade_3_7/)）。3.7 は `--experimental-*` が残ると起動しない | porkadot の各版で上げる（§2） |
 | control-plane・kube-proxy・kubelet | v1.29.8 | **クリティカル**（本体） | — | porkadot の各版 |
-| CoreDNS | v1.10.1 | **クリティカル**（porkadot が配る） | porkadot の版が K8s のマイナーに対応する決まり。kubeadm の各版の既定に合わせる | porkadot の各版 |
+| CoreDNS | v1.10.1 | **クリティカル**（porkadot が配る） | porkadot の版が K8s のマイナーに対応する決まり。kubeadm の各版の既定に合わせる | porkadot の各版。段 8 で最新（v1.14.7）と Corefile の改善（§2） |
 | cnidaria | v0.1.1 | **クリティカル**（自作 CNI） | 動かなくなれば Pod の通信が止まる。API の面では問題は見当たらない（GA の API だけ、client-go v0.37.0） | 各段で dev と本番で確かめる。直しが要れば cnidaria-cni の PR |
 | Longhorn | v1.11.2 | **クリティカル** | 製品自身が 1 マイナーずつしか許さない。1.11.3・1.13.0 は K8s 1.34 以上を要求する。上限の K8s の表明はどの版にも無い（[release notes](https://github.com/longhorn/longhorn/releases)、[upgrade](https://longhorn.io/docs/1.13.0/deploy/upgrade/)） | 段 5 の後に 2 回（§4） |
 | containerd・runc | 2.2.1・1.3.4 | **クリティカル** | 2.2 は 1.37 の推奨表に無い（1.37 は 2.4.0+ / 2.3.0+）。2.2 の upstream の EoL は 2026-11-06、runc 1.3 は 2026-10 末（[containerd RELEASES.md](https://github.com/containerd/containerd/blob/main/RELEASES.md)、runc 1.5.0 の release notes） | 段 C で 2.3 系へ（§5） |
@@ -146,8 +147,8 @@ K8s 1.29〜1.35 と 2.3 の組み合わせについて:
 - **porkadot に変更は要らない。** porkadot は containerd を入れず（`setup-containerd` は config を書くだけ）、0.29.2 の `setup-containerd` は containerd 2.3 と config version 4 に対応済み。
 - **config は今の version 3 のまま使う。** 2.3 は version 3 を読んで起動時に移行する。2.2.1 は version 4 を読めないので、version 3 を残しておけば、戻すときに config に触らずに済む。
 - `setup-containerd` は版の行のある config を作り直さないので、流しても version 3 のまま `SystemdCgroup` を確かめて containerd を再起動するだけ。段 C では流す必要は無い（流す場合は、このリポジトリの `assets/` を 0.29.2 で render し直してから。今の `assets/kubelet-default/setup-containerd.sh` は version 4 に対応する前の render）。
-- version 4 の config に作り直す（`containerd config default` の 2.3 の既定値にする）のは、本番が 1.37 で落ち着いてからの任意の作業とする（§9.7）。
-- **porkadot の外で変更が要るもの**: k8s-env の `raspi/` の cloud-init は Ubuntu の `containerd` を入れる。control-plane を作り直すと 2.2 系に戻るので、Docker の `containerd.io` 2.3 系を pin して入れる形に直す必要がある（k8s-env の PR。§9.7）。dev の VM の cloud-config（`porkadot-dev/tools/`）も同じく見直す。
+- version 4 の config に作り直す（`containerd config default` の 2.3 の既定値にする）のは、段 8 の後に行う（§10）。
+- **porkadot の外で変更が要るもの**: k8s-env の `raspi/` の cloud-init は Ubuntu の `containerd` を入れる。control-plane を作り直すと 2.2 系に戻るので、Docker の `containerd.io` 2.3 系を pin して入れる形に直す（k8s-env の PR。段 C の前後。§10）。dev の VM の cloud-config（`porkadot-dev/tools/`）も同じく見直す。
 
 ### 5.5 手順の骨子（1 台ずつ）
 
@@ -188,8 +189,8 @@ K8s 1.29〜1.35 と 2.3 の組み合わせについて:
 
 ### 5.8 段 C の後の 2.3 のパッチ
 
-- `containerd.io` は自動では上がらない。2.3 のパッチ（upstream の 2.3.7 など）は、K8s の段の合間に、同じ 1 台ずつの手順（config・pin はそのまま、drain の要否は §9.3）で上げる。K8s の段と同じ時には上げない。
-- どの頻度で追うかは §9.7。
+- `containerd.io` は自動では上がらない。**K8s の段の合間に、2.3 系のパッチにセキュリティ修正があれば上げる**（それ以外のパッチは追わなくてよい）。手順は段 C と同じ 1 台ずつ（config・pin はそのまま、worker は drain する）。K8s の段と同じ時には上げない。
+- Docker の `containerd.io` は upstream より遅れて出る（2026-10-18 は upstream の 2.3.7 に対して 2.3.6）。上げるかどうかは、upstream の release notes のセキュリティ修正と、Docker のリポジトリに出たかを見て決める。
 
 ## 6. K8s の各段の手順（骨子）
 
@@ -276,17 +277,17 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 | 段 | 注意 |
 |---|---|
 | C | containerd 2.2.1 → 2.3.x、runc 1.3.4 → 1.5.x（§5）。K8s は v1.29.8 のまま |
-| 1（1.30） | etcd を 3.5.34 へ（パッチ更新）。porkadot の手順書を §6.2 の順に直す（0.30 の PR）。crictl を v1.30.1 へ（1.29 で上げ忘れていた） |
+| 1（1.30） | etcd を 3.5.34 へ（パッチ更新）。porkadot の手順書を §6.2 の順に直す（0.30 の PR）。crictl を v1.30.1 へ（1.29 で上げ忘れていた）。本番の `porkadot.yaml` から `ETCD_UNSUPPORTED_ARCH` を消す（§10） |
 | 2（1.31） | kubelet の serving 証明書の CSR が CN とノード名の一致を検査される。kubelet-serving-cert-approver で承認されることを `kubectl get csr` で見る |
 | 3（1.32） | `flowcontrol.apiserver.k8s.io/v1beta3` の削除。本番は使っていないことを確かめてある。段の前に Prometheus の `apiserver_requested_deprecated_apis` を見直す |
 | 4（1.33） | v1 Endpoints API が非推奨になる（削除はされない）。kube-prometheus の ServiceMonitor などが warning を出すだけ |
 | 5（1.34） | **etcd 3.6.15 へ（マイナー更新）**。porkadot がフラグ名（`--experimental-initial-corrupt-check`、`--experimental-watch-progress-notify-interval`）を新しい名前に変える。static Pod から API オブジェクトを参照できなくなる（bootstrap の kube-proxy を porkadot で直す。稼働中の更新には効かない）。**段の後に Longhorn を 2 回上げる**（§4） |
 | 6（1.35） | **kubelet が cgroup v1 で起動しない**。段の前に全台の `stat -fc %T /sys/fs/cgroup` が `cgroup2fs` であることを確かめる（2026-10-18 の調査では 8 台とも `cgroup2fs`）。kubelet の `--pod-infra-container-image` の削除（使っていない） |
 | 7（1.36） | `gitRepo` volume が無効になる（使っていない）。kube-controller-manager のメトリクス `volume_operation_total_errors` が `volume_operation_errors_total` に改名（本番の PrometheusRule は使っていない）。MetalLB の CRD を apply し直すことになるので、dev で `install kubernetes` が通ることを見る |
-| 8（1.37） | **etcd 3.7 へ（マイナー更新）**。`--experimental-*` が残っていると etcd が起動しないので、段 5 でフラグを直したことを render の差分で確かめる。kube-proxy は `mode` の明示が無いと warning を出す（本番は `mode: iptables` を継ぐ）。containerd 2.3 は 1.37 の推奨表に入る |
+| 8（1.37） | **etcd 3.7 へ（マイナー更新）**。`--experimental-*` が残っていると etcd が起動しないので、段 5 でフラグを直したことを render の差分で確かめる。kube-proxy は `mode` の明示が無いと warning を出す（本番は `mode: iptables` を継ぐ）。containerd 2.3 は 1.37 の推奨表に入る。**CoreDNS を最新（v1.14.7）にし、Corefile の `cache` に `disable success` / `disable denial` を足す**（§2）。kubelet の `--container-runtime-endpoint` を KubeletConfiguration へ移す（§10） |
 
-- kubelet の `--container-runtime-endpoint` は 1.37 で DEPRECATED、削除は 1.38 に延期された。KubeletConfiguration の `containerRuntimeEndpoint` へ移すのは 1.38 の前の宿題であり、この計画の必須の作業にはしない（§9.7）。
-- 本番の `porkadot.yaml` の `etcd.extra_env: ETCD_UNSUPPORTED_ARCH=arm64` は警告が出るだけ。消すのは任意（§9.7）。
+- kubelet の `--container-runtime-endpoint` は 1.37 で DEPRECATED、削除は 1.38 に延期された。KubeletConfiguration の `containerRuntimeEndpoint` へ移すのは段 8 で行う（§10）。
+- 本番の `porkadot.yaml` の `etcd.extra_env: ETCD_UNSUPPORTED_ARCH=arm64` は警告が出るだけだが、段 1 で消す（§10）。
 
 ## 8. 最後に上げる非クリティカルなコンポーネント
 
@@ -297,52 +298,64 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 | kube-prometheus-stack | chart 85.2.1（operator v0.90.1） | chart 92.10.1（operator v0.94.1） | fleet-infra `scripts/update-kube-prometheus.sh` | major が 7 つ上がる。CRD を先に更新する。各 major の upgrade notes を読む |
 | metrics-server | v0.7.2 | v0.9.0 | fleet-infra `scripts/update-metrics-server.sh` | 0.9.x は 1.34 以上。fleet-infra の README の「上げない」の注記を外す |
 | MetalLB | v0.14.5 | v0.16.0 | porkadot の addon | 0.16.0 で BGP の既定の backend が frr-k8s に、metrics が HTTPS に。本番は L2 だけ。残っている `addresspools` の CRD を片付ける。API の VIP を持つので dev で先に通す |
-| kube-dns-autoscaler | cpa-amd64 1.7.1 | cpa v1.10.3（マルチアーキ） | porkadot の addon | |
+| kube-dns-autoscaler | cpa-amd64 1.7.1 | cpa v1.10.3（マルチアーキ） | porkadot の addon | CoreDNS と同じ addon のディレクトリにあるが、段 8 の CoreDNS の PR とは分け、段 8 の後に別の porkadot の PR で上げる（段 8 の変更を小さく保ち、壊れたときに CoreDNS 本体と切り分けられるように） |
 | CNI plugins | v1.4.1 | v1.9.1 | porkadot（`cni_version`） | cnidaria が使う reference plugins。dev で cnidaria と一緒に確かめる |
 | kubelet-serving-cert-approver | `:main` | 据え置き | porkadot の addon | タグを固定するかは別途 |
 | gated | v0.4.1 | 任意 | fleet-infra `apps/gated` | `k8s.io/*` を 0.37 に上げて作り直すのは任意 |
 
-## 9. ユーザーが決めるべき点
+## 9. 決まったこと（2026-10-18 のユーザーの回答）
+
+計画の承認のときに、次のとおり決まった。
 
 ### 9.1 承認の粒度
 
-案: **計画（この文書）を一度承認してもらい、その後は次の節目でだけ承認を取る。** 節目の間の runbook どおりの手順は、知らせるだけで進める。
+**計画を一度承認し、その後は次の節目でだけ承認を取る。** 節目の間の runbook どおりの手順は、知らせるだけで進める。
 
 - 段 C の開始（Docker のリポジトリを足す前）と、oeilvert の Docker の入れ替えの前
 - 各段の porkadot の PR のマージとリリース
 - 本番の各段の開始（render の差分を見せてから `install kubernetes` を流す前）
 - etcd のマイナー更新を含む段（5 と 8）の control-plane の kubelet の更新の前
 - Longhorn の各更新の前（`kubectl diff` と `--dry-run=server` を見せてから）
+- §10 の本番の片付け（その時点で対象を示して承認を取る）
 - runbook から外れる操作（ロールバック、想定外の対処）は、その都度
 
 ### 9.2 containerd の目標の版と入手元
 
-案（§5）: **2.3 系（LTS）を、Docker の apt リポジトリの `containerd.io` から、apt の pin で 2.3 系に固定して入れる。** 前タスクの OS 更新で「Ubuntu の containerd に揃える」とした判断を、containerd については戻すことになる（Ubuntu に 2.3 が無いため）。代わりの案は upstream の tarball（§5.2）。
+**2.3 系（LTS）を、Docker の apt リポジトリの `containerd.io` から、apt の pin で 2.3 系に固定して入れる**（§5）。前タスクの OS 更新で「Ubuntu の containerd に揃える」とした判断を、containerd については戻す（Ubuntu に 2.3 が無いため）。
 
 ### 9.3 drain の要否
 
-- **段 C**: 案は、worker は drain する（前タスクの手順をそのまま使え、実績がある。containerd のパッケージを入れ替える間は containerd が止まり、dev では DaemonSet の Pod が 1 回ずつ再起動した）、control-plane は drain しない。dev で drain なしの入れ替えを試し、Pod の再起動が無ければ、worker も drain しない形にしてよい。
-- **K8s の各段の worker**: 案は **drain しない**。`install kubelet --node` は kubelet を入れ替えて再起動するだけで、動いている Pod はそのまま残る。replica 1 の Longhorn のボリューム（MinIO、Prometheus）と、instance-manager の PDB で drain が止まる手間を避けられる。dev の検証（§6.6）で、kubelet の更新でコンテナが再起動しないことを各段で確かめ、再起動する段があればその段だけ drain する。毎段 drain する（upstream の手順どおり）なら、8 段 × 5 台の drain と、Longhorn の設定の切り替え（Wiki の運用メモ）を毎回伴う。
+- **段 C**: worker は drain する（前タスクの手順をそのまま使う）。control-plane は drain しない。
+- **K8s の各段**: worker も drain しない。dev の検証（§6.6）で kubelet の更新でコンテナが再起動しないことを各段で確かめ、再起動する段だけ drain する。
 
 ### 9.4 oeilvert の Docker（devbox）
 
-`containerd.io` に移すと Ubuntu の `docker.io` が使えなくなる（§5.5）。案は **Docker の `docker-ce` に移す**（devbox は入れ替えの間止まる）。devbox を使う時間帯を避けて行う。
+**Docker の `docker-ce` に移す**（§5.5）。devbox は入れ替えの間止まる。
 
 ### 9.5 Longhorn の経路
 
-§4.2 の A（推奨）・B・C のどれにするか。
+**経路 A**（§4.2）。段 5（1.34）の後に 1.11.2 → 1.12.x → 1.13.x。
 
 ### 9.6 停止時間と時期
 
-- 想定する停止: control-plane は 1 台ずつ入れ替わるので VIP は応答し続ける見込み（control-plane の交換のときも応答し続けた）。apiserver の DaemonSet のローリング中に、API の短い切断はありうる。worker の kubelet の更新で Pod は止まらない見込み（§9.3）。Longhorn の更新はエンジンの live upgrade で、ボリュームは attach されたまま。段 C で worker を drain すると、MinIO（oeilvert）と braque の NFS（再起動の間）は止まる。
-- **サービスの停止を許すか**、許すならどの時間帯か。許さないなら、上の見込みが外れたときに中断して戻す基準をどこに置くか。
-- 段の間隔: 1 段を本番で健全にしてから次の段へ進む間に、何日か様子を見るか（例: 段 C と、段 5・段 8 の etcd のマイナー更新の後だけ 1 日置く）。
+- **いつでもよい。** サービスの停止の時間帯の制約は無い。
+- ただし braque を止める（再起動する）ときは、前タスクの `docs/worker-os-upgrade/runbook.md` §2.1.1 のとおり、braque の NFS を使うバックアップの CronJob の時間帯を避ける（UTC で 05:44 ごろ、07:53 ごろ、09:03 ごろ、20:30 ごろ、21:00 ごろ）。
+- 段の間隔は必須ではない。目安として、段 C の後と、etcd のマイナー更新を含む段 5・段 8 の後は 1 日ほど様子を見てから次へ進む。
 
-### 9.7 範囲に入れるか
+### 9.7 範囲
 
-- k8s-env の `raspi/` の cloud-init を `containerd.io` 2.3 系に直す（§5.4。control-plane を作り直すときに 2.2 系に戻らないように）
-- containerd 2.3 のパッチを追う頻度（§5.8）と、config を version 4 に作り直すか
-- kubelet の `--container-runtime-endpoint` を KubeletConfiguration へ移す（1.38 の前の宿題。1.37 の段で一緒にやるか、最後に別 PR か）
-- `etcd.extra_env: ETCD_UNSUPPORTED_ARCH=arm64` を消す
-- 中身の無い名前空間（`istio-system` など）と、残っている CRD（`nfd.k8s-sigs.io`、MetalLB の `addresspools`）、CSIDriver `rook-ceph.*` の片付け
-- private と k8s-env の、1.22 で削除済みの API を使う古いマニフェストの片付け
+承認の前の計画で「範囲に入れるか」として挙げたものは、すべて範囲に入れる。いつどこで行うかは §10。
+
+## 10. 本筋の段の外で行う作業
+
+| 作業 | 時期 | リポジトリ（PR） | 備考 |
+|---|---|---|---|
+| k8s-env の `raspi/` の cloud-init を、Docker の `containerd.io` 2.3 系を pin して入れる形に直す | 段 C の前後（段 C の dev の検証で手順が固まったら） | k8s-env | control-plane を作り直したときに 2.2 系に戻らないように。dev の VM の cloud-config（porkadot-dev `tools/`）も同じ時に見直す（porkadot-dev） |
+| 本番の `porkadot.yaml` から `etcd.extra_env: ETCD_UNSUPPORTED_ARCH=arm64` を消す | 段 1 | k8s-manifests-fraction（段 1 の render の差分と同じ PR） | 3.5〜3.7 では警告が出るだけ。etcd の static Pod のマニフェストの差分で消えたことを確かめる |
+| CoreDNS を最新（v1.14.7）にし、Corefile の `cache` に `disable success` / `disable denial` を足す | 段 8 | porkadot（0.37 の PR） | §2。CoreDNS の最新は段 8 の時点で確かめ直す |
+| kubelet の `--container-runtime-endpoint` を KubeletConfiguration の `containerRuntimeEndpoint` へ移す | 段 8 | porkadot（0.37 の PR。大きくなるなら 0.37 の別 PR） | 1.38 で削除される見込みのフラグ。`kubelet.service` と `config.yaml` の差分で確かめる |
+| containerd の config を version 4 に作り直す | 段 8 の後 | ノードの作業（porkadot の `setup-containerd`。porkadot の変更は不要） | 1 台ずつ、config を退避して `setup-containerd --node` で 2.3 の既定値の version 4 を作らせる。以後は 2.2.1 へ戻すときに退避した version 3 の config が要る（§5.7） |
+| containerd 2.3 のパッチ | K8s の段の合間に、セキュリティ修正があれば | ノードの作業 | §5.8 |
+| 非クリティカルなコンポーネント（kube-prometheus-stack、metrics-server、MetalLB、dns-autoscaler、CNI plugins） | 段 8 の後 | fleet-infra・porkadot | §8 |
+| 片付け: 中身の無い名前空間（`istio-system`、`kagent`、`crawl4ai`、`ml-study`、`metallb`、`minio-system`）、残っている CRD（`nfd.k8s-sigs.io`、MetalLB の `addresspools` は MetalLB の更新と一緒に）、CSIDriver `rook-ceph.*` | 最後 | 本番の作業（必要ならマニフェストの持ち主のリポジトリの PR） | 消す前に中身が空であることと、どのマニフェストからも参照されていないことを確かめ、対象を示して承認を取る |
+| 片付け: private（`proxy/proxy.yaml`、`shja-base/templates/`、`metrics-server/`）と k8s-env（`templates/` の rook、`charts/mailserver`）の、1.22 で削除済みの API を使う古いマニフェスト | 最後 | k8s-manifests-fraction-private、k8s-env | 使われていないことを確かめてから、消すか今の API に直す |
