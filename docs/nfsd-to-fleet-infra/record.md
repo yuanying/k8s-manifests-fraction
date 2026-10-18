@@ -49,7 +49,7 @@ k8s-manifests-fraction の overlay `nfsd/` は消した。`base` submodule（k8s
 
 ## 2. 切り替え（2026-10-18 01:35Z〜01:37Z、JST 10:35〜10:37）
 
-pablo の OS 更新（drain で docker/registry と fs/h2 が oeilvert へ、fs/h2-restore が duchamp へ移った）が 01:27Z に終わってから行った。
+pablo の OS 更新（drain で docker/registry と fs/h2 が oeilvert へ移った）が 01:27Z に終わってから行った。
 fleet-infra は `origin/main` が `1130d5c` のままであることを確かめ、`git archive origin/main infrastructure/nfsd` で取り出したものを使った。
 
 | 時刻（UTC） | したこと | 結果 |
@@ -83,7 +83,9 @@ fleet-infra は `origin/main` が `1130d5c` のままであることを確かめ
 | `registry.fraction.jp` | `curl https://registry.fraction.jp/v2/`。docker/registry の Pod（oeilvert、`192.168.1.131:/docker-registry` を `/var/lib/registry` にマウント）の中で保存先を読む | `/v2/` は 401（認証の要求で、registry は応答している）。保存先の repositories（3 つ）が見え、`llm-wiki:latest` の manifest の blob を読んで sha256 が名前と一致した。実際の pull は試していない |
 | fs の各サービス | fs/h2-restore・sites-restore・data-restore の中で、`*.fs.svc.cluster.local:/`（`/original`）と braque の NFS（`/backup`）を `ls` | すべて読めた（h2 16、sites 27、data 14 エントリ） |
 | oeilvert のホストのマウント | `ssh yuanying@192.168.1.82` で `findmnt` と `ls /home/yuanying/shared/nfs` | `192.168.1.131:/` が `vers=4.2,soft,timeo=60,retrans=5` でマウントされたまま、`ls` で中身が見えた |
-| 次のバックアップ CronJob | 05:44Z（JST 14:44）の fs/h2-backup を待つ | （待っている） |
+| 次のバックアップ CronJob | 05:44Z（JST 14:44）の fs/h2-backup | **待たずに終えた（ユーザー判断）。** 切り替えの後、braque の NFS を使うバックアップの回はまだ来ていない。バックアップの書き込み先への読み書きは、上の fs/data-restore の確認で見ている |
+
+02:17Z（切り替えの 40 分後）にも、nfsd の Pod は再起動なしの Running で、Running・Completed でない Pod は無かった。
 
 ## 4. 戻し方
 
@@ -96,6 +98,8 @@ selector は同じなので、どちらの向きでも DaemonSet の置き換え
 3. §3 の確認をもう一度行う
 
 ## 5. fleet-infra の README の下書きとの違い
+
+以下は fleet-infra の PR #193（`eb0ca52`）で README に反映された。
 
 - `kubectl diff` の出力では、`last-applied-configuration` の注釈は変更行として出なかった（README は image と注釈の差が出ると書いている）
 - 「test での検証」の表は、新しい image の `exportfs -v` が本番の旧 image と同じだと書いている。本番では表記が違った（新しい image は既定値の `sync`・`hide` も出し、
