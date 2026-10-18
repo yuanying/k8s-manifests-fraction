@@ -143,7 +143,20 @@ chirico（192.168.1.83）の containerd を、Ubuntu の `containerd` 2.2.1 か�
 
 ## 7. 次の 1 台へ進む条件（runbook §3.12）
 
-（07:4xZ に確かめる。下の 7.1 に書く）
+1 台目なので、Ready に戻ってから約 1 時間おいて、2026-10-18 07:45Z に確かめた。**すべて満たした。**
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台の Node が Ready。終えたノードが `containerd://2.3.x`、まだのノードが `containerd://2.2.1` | 8 台 Ready。chirico が `containerd://2.3.6`（v1.29.8）、ほかの 7 台が `containerd://2.2.1` |
+| 終えたノードの cnidaria の Pod が Ready で、`verify-nodes.sh` が全 PASS | `cnidaria-r7jbk` 1/1 Running。64 PASS、cnidaria のログの error 0 |
+| etcd 3/3 healthy、VIP が応答する | 3/3 healthy、リーダー .112、raft term 23111、index はそろっている。`/readyz` は `ok` |
+| Running / Completed 以外の Pod が、ベースラインから増えていない | 0 個 |
+| Longhorn のボリュームが healthy。再同期が終わっている | attached healthy 23、detached 2（ベースラインのもの）。同じノードに同じボリュームの replica が 2 つ載ったものは無い |
+| Longhorn の 3 つの設定が元の値。`minio/minio` が 4、Prometheus の `spec.replicas` が 2 | `5`、`least-effort`、`block-if-contains-last-replica`。MinIO 4/4、Prometheus 2 |
+| `netcheck.sh`、`check-apps.sh` がベースラインと同じ | netcheck 168/168（07:03Z）。`check-apps.sh` は 07:03Z と 07:45Z で同じ（ベースラインとの差は db-postgresql-0 の移動だけ） |
+| 終えたノードが 30 分以上、再起動や NotReady なしで動いている | Ready は 06:43:48Z から変わらない（約 62 分）。起動は 06:43:23Z のまま。chirico の Pod の再起動回数は 06:45Z から増えていない |
+
+監視（runbook §2.4）は 06:32Z から 07:46Z まで流し、FAIL は 0（VIP も LB も、入れ替え・kubelet の再起動・drain・再起動の間を通して）。chirico の作業の終わりで止めた。次のノードの作業を始めるときに流し直す。
 
 ## 8. 手順書との差、気づいたこと
 
