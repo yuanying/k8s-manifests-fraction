@@ -204,7 +204,7 @@ OS 更新の手順書 §2.1.1 と同じ。作業の前に `kubectl --context fra
 - **止めてはいけない時間帯（JST）**: 05:15〜06:45、14:30〜15:00、16:45〜17:05、17:55〜18:15
 - **止めてよい時間帯（JST）**: 07:00〜14:30 と 18:15〜翌 05:15
 
-braque の drain から uncordon まで（§3.8〜§3.10）は 30 分前後の見込み（braque の drain で動く Pod は無い）。これが止めてよい時間帯に収まるように始める。入れ替え（§3.3〜§3.7）は braque を止めないので、時間帯を問わない。
+braque の drain から uncordon まで（§3.8〜§3.10）は 30 分前後の見込み（braque の drain で動く Pod は無い）。段 C の本番では 5 分 9 秒だった（drain 1 秒、再起動から Ready まで 3 分 5 秒。`results/stage-c/braque.md`）。これが止めてよい時間帯に収まるように始める。入れ替え（§3.3〜§3.7）は braque を止めないので、時間帯を問わない。
 braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Service の IP 10.254.0.0/16 と `fraction.cluster` の名前が使えない）は OS 更新の手順書 §2.1.1 のとおりで、再起動の前にユーザーに伝える。
 
 ### 2.6 drain と Longhorn の設定
@@ -214,6 +214,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 - kubelet の再起動（§3.7）の前に、`concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled` にする（control-plane は Longhorn の node ではないので要らない。クラスタ全体にかかる。1 台の作業の間だけ。途中でやめても必ず戻す）
 - 最後の replica を持つノードでは、`node-drain-policy` を `allow-if-replica-is-stopped` にし、その replica を使う workload を止めてから drain する
 - uncordon して Longhorn の node が Ready / schedulable に戻ってから、設定を元に戻す。`replica-replenishment-wait-interval`（6000 秒 = 100 分）以内に戻せば、止まった replica をそのまま再同期する
+- **`replica-auto-balance` は、段 C の間は `disabled` のままにする**（2026-10-18 のユーザーの提案。pablo の作業の途中、08:50Z から）。台ごとに戻すのは `concurrent-replica-rebuild-per-node-limit` と、変えたときの `node-drain-policy` だけにする。rebuild-limit を `0` のままにすると、drain で止まった replica が再同期されず、次の台の drain でボリュームの running の replica が 0 になりうるので、これは毎回戻す。`replica-auto-balance` を `least-effort` に戻す時期は、段 C の最後にユーザーと決める（§6）
 
 **replica 1 のボリュームの置き場所（2026-10-18 の読み取り）**。前タスクの頃から変わっている（prometheus の 0 と 1 の置き場所が入れ替わり、pablo の replica は 0 になった）。drain の前に必ず読み直す。
 
@@ -227,7 +228,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
 **この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
-本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。braque の後（09:27Z）は replica が 1 つも動かなかった（braque の drain では Pod が退かない。`results/stage-c/braque.md` §6）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
 
 読み直し方:
 
@@ -417,6 +418,8 @@ kubelet の再起動で Node が一瞬 NotReady になり、Longhorn が auto-ba
      concurrent-replica-rebuild-per-node-limit replica-auto-balance node-drain-policy   # APPLIED が true
    ```
 
+   - 段 C の間は `replica-auto-balance` が既に `disabled` になっている（§2.6）。そのときは `replica-auto-balance` の patch は要らない（braque では流さなかった）
+
    - ここで止めることになった（§3.7 の確認で問題が出て §7.1 で戻すなど）ときも、この 2 つは必ず元の値に戻す（§3.11 の 3）
 3. ✋ kubelet を再起動する。
 
@@ -509,13 +512,15 @@ sudo systemctl reboot
 
 ノードごとの追加の確認は OS 更新の手順書 §3.7 の「ノードごとの追加の確認」と同じ（braque の nfsd と `registry.fraction.jp`、pablo の fs の h2・`docker/registry`・share-manager）。oeilvert は §4.3。
 
+braque の再起動で NFS が止まると、braque の `/movies/*` を使う `carib2`・`pondo2`・`shja2` の `movies` の Pod（ほかのノードで動く）が応答しなくなり、NFS が戻ったところで liveness で 1 回ずつ再起動する（段 C の本番で 09:24:35〜37Z、exit code 2。`results/stage-c/braque.md` §5）。再起動の後に Running に戻っていればよい。
+
 ### 3.11 uncordon と後始末 ✋
 
 OS 更新の手順書 §3.8 と同じ。
 
 1. ✋ `kubectl-admin uncordon <ノード>`（§3.10 の 2 と 3 が通ってから）。
 2. ✋ §3.8 の 2 で止めたものを戻す。chirico・duchamp は Prometheus リソースの `spec.replicas` を 2 に、oeilvert は `minio/minio` を 4 に。Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
-3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ Longhorn の設定を §3.7 の 2 で記録した値に戻す（2026-10-18 は `5`、`least-effort`、`block-if-contains-last-replica`。`node-drain-policy` は §3.8 の 1 で変えたときだけ）。読み直して APPLIED が true であること。切り替えてから戻すまでの時間を記録する（100 分を過ぎると、止まった replica を使わずに作り直すことがある）。
+3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ Longhorn の設定を §3.7 の 2 で記録した値に戻す（2026-10-18 は `5`、`least-effort`、`block-if-contains-last-replica`。`node-drain-policy` は §3.8 の 1 で変えたときだけ）。**段 C の間は `replica-auto-balance` を戻さず `disabled` のままにし、`concurrent-replica-rebuild-per-node-limit` だけを戻す**（§2.6）。読み直して APPLIED が true であること。切り替えてから戻すまでの時間を記録する（100 分を過ぎると、止まった replica を使わずに作り直すことがある）。
 4. Longhorn: 対象のノードの replica が running に戻り、再同期が終わるまで待つ。degraded のボリュームがベースラインから増えていないこと。本番の chirico では、設定を戻してから全部 healthy になるまで 16 分かかった。data locality で replica の置き場所が変わることがある（§2.6）ので、終わった後の replica の置き場所を記録し、同じボリュームの replica が同じノードに 2 つ載っていないことを見る（`kubectl --context fraction -n longhorn-system get replicas.longhorn.io -o json | jq -r '.items[]|.spec.volumeName+" "+.spec.nodeID' | sort | uniq -d` が空）。
 5. Running / Completed 以外の Pod が、ベースラインから増えていないこと。
 6. ✋ `netcheck.sh` と `check-apps.sh` を流す。ベースラインと同じであること。
@@ -531,7 +536,7 @@ OS 更新の手順書 §3.8 と同じ。
 - etcd 3/3 healthy、VIP が応答する
 - Running / Completed 以外の Pod が、ベースラインから増えていない
 - Longhorn のボリュームが healthy（ベースラインのものを除く）。再同期が終わっている
-- Longhorn の 3 つの設定が元の値に戻っている。`minio/minio` が 4、Prometheus の `spec.replicas` が 2
+- Longhorn の 3 つの設定が元の値に戻っている（段 C の間は `replica-auto-balance` が `disabled` で正しい。§2.6）。`minio/minio` が 4、Prometheus の `spec.replicas` が 2
 - `netcheck.sh`、`check-apps.sh` がベースラインと同じ
 - 終えたノードが、少なくとも 30 分、再起動や NotReady なしで動いている。1 台目（chirico）と、control-plane の 1 台目（.113）の後は長めに見る
 
@@ -717,7 +722,7 @@ apiserver が止まりきってから外れるまで待つ方法は、段 C の�
 - etcd 3/3 healthy、リーダーが居る、raft index がそろっている。VIP の `/livez` が `ok`、`/version` が v1.29.8
 - apiserver 3/3。controller-manager と scheduler が 2/2。置き場所を記録する（同じ master に同じ component が 2 つ載っていれば記録する。直すかは別途）
 - Running / Completed 以外の Pod が無い（ベースラインのものを除く）
-- Longhorn: attached のボリュームが全部 healthy（detached の 2 つはベースラインのとおり）、instance-manager が全部 running。設定が元の値。`minio/minio` が 4、Prometheus の `spec.replicas` が 2
+- Longhorn: attached のボリュームが全部 healthy（detached の 2 つはベースラインのとおり）、instance-manager が全部 running。設定が元の値（`replica-auto-balance` は段 C の間 `disabled`。`least-effort` に戻す時期をここでユーザーと決める。§2.6）。`minio/minio` が 4、Prometheus の `spec.replicas` が 2
 - cnidaria: 8 台の Pod が Ready、`verify-nodes.sh` が全 PASS、`netcheck.sh` が全 PASS、`hedgedoc/db-postgresql` の NetworkPolicy がノードの nftables に入っている
 - MetalLB: LoadBalancer の Service が応答する（gated、`h2-sshd`、`natsumi-sshd`、minecraft）
 - braque の NFS が応答する
