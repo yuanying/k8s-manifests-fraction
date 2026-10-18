@@ -31,7 +31,7 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 - 読み取りの確認（`kubectl --context fraction get`、SSH での状態確認）は、知らせずに行ってよい。
 - **物理作業はユーザーが行う。** コンソール、電源。
 - **1 台ずつ行う。** 1 台を終えて「次の 1 台へ進む条件」（§3.12）を満たすまで、次のノードに手を付けない。
-- 時刻はすべて UTC で記録する（ノードのホストの時刻も UTC）。
+- 時刻はすべて UTC で記録する。worker のホストの時刻は UTC だが、**control-plane（192.168.1.111〜113）のホストの時刻は Asia/Tokyo（JST）** である。control-plane の `journalctl` や `ls -l` の時刻は 9 時間ずらして読む。
 
 ## 1. 前提
 
@@ -89,11 +89,15 @@ Docker の noble のリポジトリに、2.3 系の新しいパッチが出て�
 
 ```sh
 for a in amd64 arm64; do
-  echo "== $a"
-  curl -fsSL https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-$a/Packages \
-    | awk '/^Package: /{p=$2} /^Version: /{if (p=="containerd.io" || p=="docker-ce") print p, $2}' | sort -V | tail -12
+  for p in containerd.io docker-ce; do
+    echo "== $a $p"
+    curl -fsSL https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-$a/Packages \
+      | awk -v want="$p" '/^Package: /{p=$2} /^Version: /{if (p==want) print p, $2}' | sort -V | tail -6
+  done
 done
 ```
+
+- パッケージごとに流す。2 つを 1 つの `sort -V | tail` に流すと、後ろに並ぶ `docker-ce` の行で埋まり、`containerd.io` の行が出ない（2026-10-18 の本番の作業で気づいた）
 
 2026-10-18 の時点:
 
