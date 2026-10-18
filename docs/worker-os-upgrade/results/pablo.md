@@ -192,3 +192,92 @@ conffile の扱い:
 
 apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261018`。`third-party.sources` はできなかった。
 再起動の前、cnidaria の経路は 7 本のままだった。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 01:23:34 | 4: `systemctl reboot`（ユーザーが承認） | journal は 01:23:38 に止まった。kernel の起動は 01:25:23（`uptime -s`）。01:25:56 に SSH が上がり、01:26 に Ready（SchedulingDisabled）、Ubuntu 24.04.5、6.8.0-147-generic、`containerd://2.2.1` |
+
+- 止めてから kernel が起動するまで約 2 分。起動は 21 秒（kernel 2.9s、userspace 17.9s）
+
+## 5. 24.04 での確認（runbook §3.6・§3.7）
+
+版:
+
+| 項目 | 値 |
+|---|---|
+| OS | Ubuntu 24.04.5 LTS |
+| kernel | 6.8.0-147-generic |
+| containerd | 2.2.1-0ubuntu1~24.04.3（`containerd://2.2.1`） |
+| runc | 1.3.4-0ubuntu1~24.04.1 |
+| nftables | 1.0.9 |
+| kubelet | v1.29.8 |
+| irqbalance | 1.9.3-2ubuntu5（再起動の後に入れ直した） |
+
+- §3.6: `/etc/containerd/config.toml` は §3.4 で作った version 3 のまま（`SystemdCgroup = true`、`registry.k8s.io/pause:3.10.1`）。migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。containerd と kubelet は active。kubelet は起動直後に 1 度 containerd の socket が無くて失敗し、やり直して上がった（ほかの 4 台と同じ）。`setup-containerd` の再実行は要らなかった
+- 01:27:01: ✋ `apt-get install -y irqbalance`（§3.5 の 6）。1.9.3-2ubuntu5 が入り、active
+
+| # | 確認 | 結果 |
+|---|---|---|
+| 1 | Node | Ready,SchedulingDisabled。24.04.5、6.8.0-147-generic、`containerd://2.2.1`。ラベル `metallb=speaker` が残っている |
+| 2 | CSR | Pending は無い |
+| 3 | DaemonSet の Pod | cnidaria、kube-proxy、engine-image、longhorn-csi-plugin、longhorn-manager、speaker、node-exporter、smart-exporter が Running |
+| 4 | ログ | cnidaria のログが読める |
+| 5 | cnidaria | `verify-nodes.sh` は 64 PASS、FAIL 0。cnidaria のログに error は無い。01:25:56 に経路を入れて nft のテーブルを適用した |
+| 6 | ホストの nft | 1.0.9。`nft list tables` は `inet cnidaria` を含めて rc 0 |
+| 7 | iptables | v4・v6 とも FORWARD の policy は ACCEPT、`CNIDARIA-FWD` へのジャンプが先頭 |
+| 8 | ディスク | `/var/lib/longhorn`（`/dev/sda`、1.8T）がマウントされている |
+| 9 | ZFS | pablo には無い |
+| 10 | multipath と iSCSI | `/etc/multipath.conf` は addon の版。multipathd と `iscsid.socket` は active。iSCSI のセッションは無い |
+| 11 | sudo | `sudo -n true` が通る |
+| 12 | DNS | `cluster-dns` は修正済みの版で active。`porka-dummy01` に 10.254.0.10 と検索ドメイン |
+| 13 | 失敗している unit | 無い。`ordering cycle` も 0 |
+
+pablo の追加の確認（runbook §3.7）: `fs/h2`、`docker/registry`、share-manager の 2 つは、drain で移った oeilvert で Running のまま（uncordon の後も戻ってこない。§6）。
+
+## 6. uncordon と後始末（runbook §3.8）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 01:27:16 | ✋ `uncordon pablo` | Ready。Longhorn の node の pablo は Ready で schedulable。`node-drain-policy` は変えていないので戻すものは無い |
+| 01:27:26 | ✋ `concurrent-replica-rebuild-per-node-limit` を `5`、`replica-auto-balance` を `least-effort` に戻す | 読み直して `5`、`least-effort`、`block-if-contains-last-replica`、APPLIED true。drain で replica が止まってから約 41 分 |
+| 01:27〜01:41:4x | 再同期を待つ | `fs/h2` の pablo の replica が再同期し、01:41 に healthy |
+| 01:41:47〜02:12:0x | data locality による replica の移動 | 下 |
+| 01:43:02〜01:43:19 | ✋ `netcheck.sh up` → `run` → `down` | `PASS 168 / 168, pods 8/8`。namespace は消した |
+| 01:43 | `check-apps.sh` | ベースラインと差が無い |
+| 02:12:32 | トークンを破棄（作業端末のファイルを消した。トークン自体は 03:46 に失効する） | |
+
+- `fs/h2`（pvc-c4944b75、replica 2、data locality `best-effort`）は、drain で Pod が oeilvert に移ったので、Longhorn が oeilvert に新しい replica を作り（01:41:47。300G を全体コピー）、02:12 に終わった後、pablo の replica を消した。replica は chirico と oeilvert の 2 つになった（duchamp、oeilvert と同じ現象。runbook §3.8 の 3）。コピーの間もボリュームは healthy だった
+  - その結果、**pablo に Longhorn の replica は 1 つも無くなった**。ノードごとの数は chirico 17、duchamp 10、oeilvert 18、pablo 0（ベースラインは 17、10、17、1）。replica は 45 個のまま
+  - 古い replica を engine から外すときに `Removing unknown replica tcp://10.244.4.91:10000 in mode ERR from engine` の event が出た。消す replica を外す時のもので、ボリュームは healthy のまま
+- Longhorn: attached healthy 23、detached unknown 2（myao、cg-data。ベースラインと同じ）
+- Running / Completed 以外の Pod は 0 個
+- drain で oeilvert に移った Pod（`docker/registry`、`fs/h2`、share-manager の 2 つ、`minio-3` など）は、uncordon の後も oeilvert で動いている。pablo の Pod は DaemonSet の 8 つと、Longhorn の instance-manager の 9 個
+
+## 7. 完了の確認（runbook §3.9、§6.1。30 分の様子見を除く）
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台が Ready。pablo が 24.04.5 と `containerd://2.2.1` | 満たす。**worker 5 台がすべて 24.04.5 / 6.8.0-147 / `containerd://2.2.1`** になった |
+| etcd 3/3 healthy、VIP が応答 | 満たす（`/readyz` は `ok`） |
+| Running / Completed 以外の Pod がベースラインから増えていない | 満たす（0 個） |
+| Longhorn のボリュームが healthy、再構築が終わっている | 満たす（02:12 に data locality のコピーも終わった） |
+| `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ | 満たす（64 PASS、168/168、差なし） |
+| Longhorn の設定が元に戻っている | 満たす（`5`、`least-effort`、`block-if-contains-last-replica`）。MinIO 4/4、Prometheus 2 は変えていない |
+| LoadBalancer | TCP のものはすべて応答（gated v4/v6 の 80・443、h2-sshd、natsumi-sshd の 3 つ、VIP の 6443）。minecraft は UDP なので確かめていない |
+| pablo の確認（runbook §3.7） | 満たす（`fs/h2`、`docker/registry`、share-manager が Running。oeilvert のホストの `shared/h` が読め、`registry.fraction.jp/v2/` は 401） |
+| 30 分の様子見 | この記録の時点（02:12Z）で 24.04 で起動してから約 47 分、再起動や NotReady は無い |
+
+## 8. runbook を直した点
+
+- §1.5: dns addon の修正が 5 台すべてに当たったことを表に書いた
+- §3.3 の pablo: drain で退いた Pod がすべて oeilvert に移り、uncordon しても戻らないこと
+- §3.4 の 9: pablo での 22.04 の再起動で、止めてから kernel が起動するまでの時間（約 5 分）
+- §3.8 の 3: pablo では、`fs/h2` の replica が data locality で oeilvert に移り、pablo に replica が残らなかったこと
+- §5.7: pablo は対処済み
+
+## 9. 申し送り
+
+- pablo の `/root` に `containerd.io_1.6.8-1_amd64.deb`、`cluster-dns.service.bak-20261018`、`full-upgrade-20261018.log` が、`/etc/apt/sources.list.d/docker.list.disabled-20261018` と `/etc/containerd/config.toml.porkadot-bak.20261018` が残っている（runbook §6.2 で片付ける）。`containerd.io` は `rc` の状態
+- 作業端末の `~/.ssh/known_hosts.bak-20261018-pablo` は known_hosts の控え
+- **drain で pablo から退いた Pod は、すべて oeilvert に集まった**（`docker/registry`、`fs/h2`、share-manager の 2 つ、`minio-3`、`alertmanager-kube-prometheus-0`、`holyorder-preview`、`comics-webdav`、`aphrael` など）。uncordon しても Pod は戻らないので、oeilvert を止めると、これらが一度に止まる。pablo は DaemonSet のほかにほぼ何も載っていない状態である。散らすかどうかはユーザーの判断
+- pablo に Longhorn の replica が無くなった（§6）。`replica-auto-balance` が `least-effort` なので、Longhorn が後で置くことがある
