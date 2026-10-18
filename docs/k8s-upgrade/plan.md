@@ -158,18 +158,19 @@ K8s 1.29〜1.35 と 2.3 の組み合わせについて:
 
 - worker を先にし、control-plane（etcd）を後にする。oeilvert は MinIO の 4 つの replica があり、Docker の入れ替え（下）も伴うので worker の最後にする。braque は再起動で NFS と LAN の Service の経路が止まるので、時間帯を決めて行う。
 
-1 台の流れ:
+1 台の流れ（本番の手順は `runbook-stage-c.md`。dev の段 C の結果で 2・3・8〜10 を直した）:
 
 1. 事前確認（読み取り）: Node が Ready、`containerd --version`・`runc --version`、`/etc/containerd/config.toml` の控え、`apt-cache policy containerd containerd.io runc`、他のノードがすべて Ready で degraded のボリュームが無い。
-2. 戻すための deb を控える: `apt-get download containerd=2.2.1-0ubuntu1~24.04.3 runc=1.3.4-0ubuntu1~24.04.1`（oeilvert は `docker.io` も）。
-3. ✋ worker は cordon と drain（前タスクの §3.3。Longhorn の `concurrent-replica-rebuild-per-node-limit` を 0、`replica-auto-balance` を disabled、最後の replica を持つノードでは `node-drain-policy` を一時的に変え、MinIO・Prometheus を止める）。control-plane は drain しない（DaemonSet と static Pod だけ。controller-manager と scheduler の Pod が載っていれば消して別の master へ移す。etcd のリーダーなら `move-leader` で移す）。drain の要否は §9.3。
+2. 戻すための deb を控える: `apt-get download containerd=2.2.1-0ubuntu1~24.04.3 runc=1.3.4-0ubuntu1~24.04.1`（oeilvert は `docker.io` も）。**1 台目で Docker のリポジトリを足す前に、全台で控える。**
+3. control-plane は drain しない（DaemonSet と static Pod だけ）。cordon し、controller-manager と scheduler の Pod が載っていれば、**1 つずつ消し、代わりが別の master で Running になってから次を消す**（dev では、同じ master に載っていた 2 つの scheduler をまとめて消し、scheduler が居なくなって代わりの Pod が Pending のままになった）。etcd のリーダーなら `move-leader` で移す（`etcd.env` の `ETCDCTL_ENDPOINTS` を外して流す）。worker はここでは drain しない（8 の前に行う）。
 4. ✋ Docker の noble のリポジトリと鍵、`containerd.io` の pin を置き、`apt update`。`apt-cache policy containerd.io` の候補が 2.3 系の最新であること（2.4 ではないこと）を確かめる。
 5. ✋ `apt-get install -o Dpkg::Options::=--force-confold containerd.io`。実行の前に、apt が削除するのが `containerd` と `runc` だけであることを読む（oeilvert は下の注意）。
-6. ノードで確かめる: `containerd --version` が 2.3.x、`runc --version` が 1.5.x、`/etc/containerd/config.toml` が version 3 のまま、`containerd config dump` に `SystemdCgroup = true`、`journalctl -u containerd` に config の移行のエラーが無い、`sudo /opt/bin/crictl info` と `crictl images`（既存のイメージが残る）。
-7. ✋ `sudo systemctl restart kubelet`。Node が Ready、CONTAINER-RUNTIME が `containerd://2.3.x`、DaemonSet の Pod が Running。control-plane では etcd 3/3 healthy と apiserver 3/3。
-8. ✋ ノードを再起動する（推奨）。古い shim を入れ替え、2.3 で起動から上がることを確かめる。braque の再起動は前タスクの §2.1.1 の注意（NFS、LAN の 10.254.0.0/16 の経路、ZFS の取り込み）に従う。
-9. 再起動の後に 6・7 をもう一度確かめ、§6.3 のノードの項目（cnidaria の経路、Longhorn のボリューム、MetalLB の speaker）を見る。
-10. ✋ uncordon、Longhorn の設定を戻し、replica の再同期を待ってから次の 1 台へ。
+6. ノードで確かめる: `containerd --version` が 2.3.x、`runc --version` が 1.5.x、`/etc/containerd/config.toml` が version 3 のまま（`containerd config dump` は読み込むときに移した version 4 を示す）、`containerd config dump` に `SystemdCgroup = true`、`journalctl -u containerd` に config の移行のエラーが無い（2.2.1 が作った sandbox への `failed to unmarshal sandbox spec` の error は想定内）、`sudo /opt/bin/crictl info` と `crictl images`（既存のイメージが残る）。
+7. ✋ `sudo systemctl restart kubelet`。Node が Ready、CONTAINER-RUNTIME が `containerd://2.3.x`、DaemonSet の Pod が Running。control-plane では etcd 3/3 healthy と apiserver 3/3。dev では、5 と 7 で Pod は 1 つも再起動しなかった（drain していないノードでも）。
+8. ✋ worker は、ここで cordon と drain（前タスクの §3.3。Longhorn の `concurrent-replica-rebuild-per-node-limit` を 0、`replica-auto-balance` を disabled、最後の replica を持つノードでは `node-drain-policy` を一時的に変え、MinIO・Prometheus を止める）。drain が要るのは次の再起動のためである（§9.3）。
+9. ✋ ノードを再起動する（推奨）。古い shim を入れ替え、2.3 で起動から上がることを確かめる。braque の再起動は前タスクの §2.1.1 の注意（NFS、LAN の 10.254.0.0/16 の経路、ZFS の取り込み）に従う。control-plane の再起動の間は、VIP がところどころ失敗する（dev では 10〜35 秒の間に 2〜8 回）。
+10. 再起動の後に 6・7 をもう一度確かめ、§6.3 のノードの項目（cnidaria の経路、Longhorn のボリューム、MetalLB の speaker）を見る。再起動の直後に cnidaria と speaker が数回 CrashLoopBackOff になることがある（kube-proxy の規則が入る前に API へ繋ごうとして落ちる。1 分ほどで戻る）。**そのノードの cnidaria の Pod が Ready になり、`verify-nodes.sh` が通ってから** uncordon する。
+11. ✋ uncordon、Longhorn の設定を戻し、replica の再同期を待ってから次の 1 台へ。
 
 **oeilvert**: Ubuntu の `docker.io`（devbox が使う）は `containerd (>= 1.2.6-0ubuntu1~)` に版つきで依存し、`containerd.io` では満たせない。`containerd.io` を入れると `docker.io` が外れるので、Docker の `docker-ce` と `docker-ce-cli`（`containerd.io (>= 2.1.5)` に依存）に移す。前タスクの §3.4.1（docker-ce から `docker.io` へ移した手順）の逆向きになる。devbox は Docker の再起動の間止まる。devbox の起動スクリプトが docker-ce で動くことを dev かその場で確かめる（§9.4）。
 
@@ -185,7 +186,7 @@ K8s 1.29〜1.35 と 2.3 の組み合わせについて:
 
 - その台で、控えた deb（または noble-updates）から Ubuntu の `containerd` 2.2.1 と `runc` 1.3.4 を入れ直す（`containerd.io` が外れる）。pin とリポジトリを外す。config は version 3 のままなので触らない。containerd と kubelet を再起動する。oeilvert は `docker.io` も入れ直す。
 - **config を version 4 に作り直していた場合は、2.2.1 が読めないので、控えた version 3 の config を戻す。** 段 C で作り直さないのはこのためである。
-- 前タスクでは、24.04 の上で containerd を戻す手順を dev で通してある（Pod が 1 回ずつ再起動し、MetalLB の speaker が 1 回 CrashLoopBackOff になってから戻った）。段 C の dev の検証でも、戻す手順を 1 台で通す。
+- 前タスクでは、24.04 の上で containerd を戻す手順を dev で通してある（Pod が 1 回ずつ再起動し、MetalLB の speaker が 1 回 CrashLoopBackOff になってから戻った）。段 C の dev の検証でも、戻す手順を 1 台で通した（2026-10-18、porkadot-dev の `docs/k8s-upgrade/verification-stage-c.md`）。drain せずに戻し、Pod の再起動は 0 だった。
 
 ### 5.8 段 C の後の 2.3 のパッチ
 
@@ -266,7 +267,7 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 
 ### 6.6 dev クラスタでの検証
 
-- dev（`porkadot-dev`、KVM の VM + Pi 5、context `test`）で、本番と同じ順序（段 C → 段 1 → …、各段は §6.2）で上げる。**段 C も dev で先に通す**（amd64 の VM と arm64 の Pi 5 の両方。戻す手順も 1 台で通す）。
+- dev（`porkadot-dev`、KVM の VM + Pi 5、context `test`）で、本番と同じ順序（段 C → 段 1 → …、各段は §6.2）で上げる。**段 C も dev で先に通す**（amd64 の VM と arm64 の Pi 5 の両方。戻す手順も 1 台で通す）。2026-10-18 の段 C の dev の検証は amd64 の VM 7 台だけで通した。arm64 の `containerd.io` を入れるのは本番の 192.168.1.113 が初めてになる（`runbook-stage-c.md` §8.4）。
 - **dev の `addons.enabled` を本番に合わせる**（`cnidaria`、`coredns`、`metallb`、`kubelet-serving-cert-approver`）。dev は既定の flannel のままなので、そのままでは cnidaria を確かめられない。dev を cnidaria に移すのは dev の検証の単位で決める。
 - Longhorn の経路（§4）も dev で先に通す。dev に Longhorn が無ければ、fleet-infra の test overlay で入れるかを dev の単位で決める。
 - 見るもの: §6.3 の項目に加えて、kubelet の更新で Pod のコンテナが再起動しないか（drain の要否の判断材料。§9.3）、`kubectl get csr`（1.31 で kubelet の CSR の検査が厳しくなる）、etcd の 1 台ずつの更新の時間。
