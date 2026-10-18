@@ -85,3 +85,54 @@ porkadot を流す前に対処した。
   - ノードの `/etc/ssh/ssh_host_ed25519_key.pub`（2022-09-16 のまま）の fingerprint `SHA256:yAGbJ59XzBF/dF3tTMFKJNPxu9oSIwY13f16K191oII` が known_hosts の ED25519 と一致する。この SSH の接続で `/etc/ssh/ssh_host_ecdsa_key.pub` を読んだ
   - その fingerprint `SHA256:7A2BEcF62bN52r9n+Zc5iAsSb1ynbFGyjvTGFO5cDFA` が、`ssh-keyscan -t ecdsa 192.168.1.134` の fingerprint と一致する
 - 00:43Z: `known_hosts.bak-20261018-pablo` に控えを取り、ハッシュしない 1 行を足した（サンドボックスの外での実行をユーザーが承認）。足した後、sshkit は `ecdsa-sha2-nistp256` を返す
+
+## 2. cordon と drain（runbook §3.3）
+
+00:4xZ にユーザーが、別タスクの braque の nfsd の本番の入れ替え（apply）を pablo の作業中に行わないことを了承した。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 00:46:07 | ✋ `infra-admin` のトークンを発行（3h） | 作業端末の 600 のファイルに置いた。`auth can-i patch nodes` が yes |
+| 00:46:12 | ✋ `cordon pablo` | Ready,SchedulingDisabled |
+| 00:46:12 | ✋ `concurrent-replica-rebuild-per-node-limit` を `0`、`replica-auto-balance` を `disabled`（§2.5） | 直前の値は `5`、`least-effort`。読み直して変わり、APPLIED true。pablo には最後の replica を持つボリュームが無いので、`node-drain-policy` は変えていない（§2.4） |
+| 00:46:22 | ✋ `drain pablo --ignore-daemonsets --delete-emptydir-data --timeout=20m` | 00:46:49 に `node/pablo drained`（rc 0）。pablo の instance-manager の PDB で 2 回（5 秒ずつ）待っただけ。コントローラを持たない Pod が無いので `--force` は付けていない |
+
+- 退いた Pod は、すべて oeilvert で起動した（`docker/registry`、`fs/h2`、share-manager の 2 つ、`minio-3`、`holyorder-preview/preview`、`alertmanager-kube-prometheus-0`、`comics-webdav`、`aphrael` など）。`aphrael` はイメージの pull で 2 分ほど ContainerCreating だった。00:48 に Running / Completed 以外の Pod は 0 個
+- drain の後の確認（runbook §3.3 の pablo）: share-manager の 2 つ、`fs/h2`、`docker/registry` は oeilvert で Running。oeilvert のホストの `/home/yuanying/shared/h`（`h2.fs.svc.cluster.local:/`）が読める。`registry.fraction.jp/v2/` は 401（認証が要るという応答）
+- Longhorn: pablo でアタッチしているボリュームは無い。attached healthy 22、attached degraded 1（`fs/h2`。pablo の replica が stopped）、detached 2。replica は 45 個で、drain の前と同じ数（pablo の 1 つは stopped）。ほかのノードに新しい replica は作られていない
+- iSCSI のセッションが 2 つ残った（`TRANSPORT WAIT`）。行き先は退いた pablo の instance-manager（10.244.4.46）で、`fs/h2` と、drain の前からあった `minio/export-minio-1` の古いセッション。マウントはされていない。ほかのノードと同じく §3.4 の 9 の再起動で片付ける
+- pablo の replica が止まったのは 00:46 ごろ。`replica-replenishment-wait-interval`（100 分）の内側で設定を戻すには、02:26 ごろまでに §3.8 の 3 を行う
+
+## 3. 22.04 のまま containerd を置き換える（runbook §3.4）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 00:48:5x | ✋ 0: `/root` で `apt-get download containerd.io=1.6.8-1` | `/root/containerd.io_1.6.8-1_amd64.deb`（28.1MB、sha256 `74ce6b6b440073b6…`、ほかの 4 台と同じ） |
+| 00:48:55 | ✋ 1: `docker.list` を `docker.list.disabled-20261018` に名前を変え、`apt-get update` | `containerd.io` の候補は 1.6.8-1、`containerd` の候補は 2.2.1-0ubuntu1~22.04.2 |
+| 00:49:27〜00:52:3x | ✋ 2: `apt-get full-upgrade` | rc 0。109 upgraded、8 newly installed、0 removed（下の 3.1） |
+| 00:52:48 | ✋ 3: `apt-get install containerd` | 先に `-s` で、消えるのが `containerd.io` だけであることを確かめた。`containerd` 2.2.1-0ubuntu1~22.04.2 と `runc` 1.3.4-0ubuntu1~22.04.1 が入り、`containerd.io` は `rc` |
+| 00:53:0x | 4: `config.toml` を `config.toml.porkadot-bak.20261018` に名前を変える | `containerd config default` は `version = 3` |
+| 00:53:15〜00:53:19 | ✋ 5: `porkadot setup-containerd --config ./porkadot.yaml --node pablo`（porkadot 4fa3a0f、asset はこのブランチの base a157440） | rc 0。`ERROR`、`Unsupported containerd config version`、`HostKeyMismatch` は無い |
+| 00:53:31 | ✋ 7: `systemctl restart kubelet` | Ready,SchedulingDisabled、`containerd://2.2.1`、OS-IMAGE は `Ubuntu 22.04.5 LTS`。DaemonSet の Pod 8 つが Running |
+| 00:54:26 | ✋ 8: dns addon の修正を (b) で当てる | 下の 3.3 |
+
+### 3.1 full-upgrade
+
+- ほかの 3 台と同じく非対話で流した: `systemd-run --unit=full-upgrade-20261018` の中で、`DEBIAN_FRONTEND=noninteractive`、`UCF_FORCE_CONFFOLD=1`、dpkg の `--force-confdef --force-confold`。ログはノードの `/root/full-upgrade-20261018.log`
+- 先に `apt-get -s full-upgrade` で、削除されるものが無いことを確かめた。kernel（5.15.0-198 は入っている）と systemd は更新に含まれていなかった
+- conffile: `/etc` の `*.dpkg-*` と `*.ucf-*` は前後で変わらなかった（前からあるのは `ca-certificates.conf.dpkg-old`、`default/grub.ucf-dist`、`ssh/sshd_config.ucf-dist`）。`/etc/sudoers`（`NOPASSWD`、`sudo -n true` が通る）と `/etc/multipath.conf`（addon の版）はそのまま
+- 更新されなかったもの: `open-vm-tools`（phased update。chirico、oeilvert と同じ）。systemd 本体は 249.11-0ubuntu3.23 のまま。nftables 1.0.2-1ubuntu3.1、multipath-tools 0.8.8-1ubuntu1.22.04.4
+- 終わった後: `/var/run/reboot-required` あり（10-07 から）。cnidaria の経路（proto 200）は v4・v6 とも 7 本。kubelet、containerd、multipathd は active
+
+### 3.2 containerd の確認（runbook §3.4 の 6・7）
+
+- `containerd --version` が 2.2.1。`/etc/containerd/config.toml` は `version = 3`、`sandbox = 'registry.k8s.io/pause:3.10.1'`、`[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]` の下に `SystemdCgroup = true`
+- `sudo /opt/bin/crictl info` が応答する。`crictl images` は 188 行で、イメージが引き継がれている
+- `setup-containerd` で再起動した後の containerd の journal に、migrate の警告と `Ignoring unknown key` は無い。`ctr deprecations list` は空
+- DaemonSet の Pod は、containerd の置き換えでも kubelet の再起動でも再起動しなかった（ほかの 4 台と同じ）
+
+### 3.3 dns addon の修正（runbook §3.4 の 8、(b)）
+
+- unit は、このブランチの `assets/kubelet-default/addons/dns/install.sh` の quoted heredoc を `sed` で取り出して使った。oeilvert の今の unit と 1 文字も違わないことを `diff` で確かめた
+- 元の unit は `/root/cluster-dns.service.bak-20261018` に写した。`daemon-reload`、`reenable`、`restart` を流した。`reenable` はほかのノードと同じ `non-existent unit` の警告を出した（害はない）
+- `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は v4・v6 とも 7 本のまま
