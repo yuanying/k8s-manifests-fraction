@@ -707,7 +707,7 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 ### 5.3 再起動の間の VIP の途切れ
 
 dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
-本番の 192.168.1.113（etcd のリーダーではない）では、28 秒の間に 6 回失敗した（10:45:32〜10:46:00Z）。Pi 5 は再起動から 46 秒で Ready に戻った（`results/stage-c/192.168.1.113.md` §4）。
+本番の 192.168.1.113（etcd のリーダーではない）では、28 秒の間に 6 回失敗した（10:45:32〜10:46:00Z）。Pi 5 は再起動から 44 秒で Ready に戻った（`results/stage-c/192.168.1.113.md` §4）。
 ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。
 control-plane が告知している `externalTrafficPolicy: Cluster` の LoadBalancer も同じく約 10 秒途切れる。2026-10-18 10:08Z（worker の 5 台を終えた後）は、.112 が `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）、.111 が `natsumi-sshd`（`::132`）を告知していた（`results/stage-c/oeilvert.md` §8）。§2.4 の監視は v4 の VIP と gated-v4 しか見ないので、これらの途切れは監視に出ない。control-plane の作業の前に、§3.9 のやり方で読み直して記録する。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
