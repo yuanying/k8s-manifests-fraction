@@ -656,8 +656,8 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
    - `etcdctl endpoint status --cluster -w table`、`etcdctl endpoint health --cluster -w table`: 3/3 healthy、raft index がそろっている、リーダーがどれか
    - controller-manager と scheduler の置き場所（§2.3 の 11 のコマンド）。**同じ master に同じ component が 2 つ載っていないか**。載っていても 3 のとおり 1 つずつ移せばよいが、その master の作業では 2 つとも移すことになるので、時間を見ておく
    - `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<IP>`: 2026-10-18 は .113 に cnidaria、etcd、kube-apiserver、kube-controller-manager、kube-proxy、kube-scheduler、speaker、node-exporter、smart-exporter が載っている
-   - **.113 の作業の後（2026-10-18 10:47Z）、controller-manager と scheduler は .111 と .112 に 1 つずつで、.113 には無い**（`results/stage-c/192.168.1.113.md` §6）。.112 の作業では .112 の 2 つが .113 へ移る見込み。.111 の作業の時点では .111 と .113 に 1 つずつになり、.111 の 2 つは .112 へ移る見込み
-   - MetalLB の告知（§3.9 のやり方。§5.3）。.113 は何も告知していなかった
+   - **.113 の作業の後（2026-10-18 10:47Z）、controller-manager と scheduler は .111 と .112 に 1 つずつで、.113 には無い**（`results/stage-c/192.168.1.113.md` §6）。.112 の作業では、見込みどおり .112 の 2 つが .113 へ移った（`results/stage-c/192.168.1.112.md` §3）。**.112 の作業の後は .111 と .113 に 1 つずつ**で、.111 の作業では .111 の 2 つが .112 へ移る見込み
+   - MetalLB の告知（§3.9 のやり方。§5.3）。.113 は何も告知していなかった。.112 は `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）を告知していて、再起動の間は pablo と oeilvert に移り、約 1 分後に .112 へ戻った
 2. ✋ `infra-admin` のトークンを発行する。
 3. ✋ cordon し、controller-manager と scheduler の Pod を 1 つずつ移す。
 
@@ -676,6 +676,7 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 
    - 代わりの Pod が **対象のノード以外の master で 1/1 Running** になり、その component の Running が 2 つにそろうまで待ってから、次の Pod を消す。dev では 1 つあたり 10〜20 秒だった
    - 代わりの Pod が Pending のままなら、次を消さずに止める（`kubectl --context fraction -n kube-system describe pod` の Events を見る）。消した Pod が scheduler のリーダーだった場合、残りの scheduler がリーダーを取るまで少し（lease の 15 秒ほど）かかることはある
+   - **消した Pod が controller-manager のリーダーだった場合、代わりの Pod が作られるまで 30 秒ほどかかる。** 代わりを作る ReplicaSet controller はリーダーの controller-manager で動くので、残りの controller-manager が lease を取り直すまで何も作られない（.112 では 26 秒。`results/stage-c/192.168.1.112.md` §3）。Pod が 1 つしか無い間も待てばよい。どれがリーダーかは `kubectl --context fraction -n kube-system get lease kube-controller-manager kube-scheduler -o custom-columns=N:.metadata.name,H:.spec.holderIdentity` で分かる
    - cordon しているので、代わりの Pod は対象のノードには戻らない。.113 の作業では、今の配置なら .111 へ移る見込み（.111 にはどちらも無い）
 4. ✋ 対象が etcd のリーダーなら、リーダーを移す。
 
@@ -687,7 +688,7 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 
    - `move-leader` はリーダーに向けて流す。`etcd.env` の `ETCDCTL_ENDPOINTS` を読み込んだまま `--endpoints` を付けると止まるので（§1.5）、`unset ETCDCTL_ENDPOINTS` してから流す。この形は dev の .113・.111・.112 で通した
    - 移す先は、次に作業しないノードにする（.113 の作業なら .111、.112 の作業なら .113（`57ec6f12ac7b683e`）、.111 の作業なら .113）
-   - 2026-10-18 は .112（`fbb0c648cf5852a5`）がリーダーで、.113 の作業の前後で変わっていない（.113 はリーダーでなかったので流していない）。**.112 の作業では、リーダーのままならここで .113 へ移す**
+   - 2026-10-18 は .112（`fbb0c648cf5852a5`）がリーダーで、.113 の作業の前後で変わっていない（.113 はリーダーでなかったので流していない）。.112 の作業でここで .113 へ移した（11:51:44Z、`Leadership transferred from fbb0c648cf5852a5 to 57ec6f12ac7b683e`、raft term 23111 → 23112。再起動の間に選挙は起きなかった。`results/stage-c/192.168.1.112.md` §3）。**.111 の作業の時点のリーダーは .113 の見込み**で、そのままなら .111 では流さない
    - 移せなかった場合も、再起動でリーダーは残りのメンバーへ移る（dev の .112 では `move-leader` が止まったまま進め、再起動でリーダーが .113 に移った。raft term が 1 つ進んだ）。ただし移るまでの選挙の分だけ書き込みが止まるので、移してから再起動するのを基本にする
 5. ✋ §3.4（リポジトリ、鍵、pin）。arm64 なので、`docker.sources` の `Architectures` が `arm64`、`apt-cache policy containerd.io` の候補が `2.3.x` であること。
 6. ✋ §3.5（`containerd.io` を入れる）。**arm64 で入れるのは .113 が初めてになる**（§8.4）。模擬の結果が amd64 と同じ形（`Remv containerd`、`Remv runc`、`Inst containerd.io ... [arm64]`）であることを読む。
@@ -701,6 +702,13 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
     - §3.6 の確認と、§3.10 の 1〜6、9〜12。**cnidaria の Pod が Ready になり、`verify-nodes.sh` が通るまで待つ**（§3.10。dev の .113 では cnidaria が 3 回 CrashLoopBackOff になってから戻った）
     - etcd: `etcdctl endpoint health --cluster -w table` が 3/3 healthy、`endpoint status` の raft index がそろっている（dev では再起動の後 2 分ほどでそろった）
     - apiserver: 対象のノードの kube-apiserver の Pod が 1/1（dev では Running になってから Ready まで 10〜15 秒）。`curl -k https://192.168.1.101:6443/readyz` が `ok`
+    - ほかのノードで、leader election を使う controller が再起動の間に 1 回再起動していないか（§5.3）。再起動していれば記録し、Running に戻っていることを見る。
+
+      ```sh
+      kubectl --context fraction get pods -A -o json | jq -r '.items[] | .metadata.namespace as $ns | .metadata.name as $n | .spec.nodeName as $node
+        | .status.containerStatuses[]? | select(.lastState.terminated.finishedAt > "<再起動の時刻（UTC）>")
+        | [$ns+"/"+$n, $node, .name, .restartCount, .lastState.terminated.exitCode, .lastState.terminated.finishedAt] | @tsv'
+      ```
 11. ✋ `kubectl-admin uncordon <IP>`。controller-manager と scheduler の Pod の置き場所を記録する（uncordon しても Pod は戻らない）。
 12. §3.11 の 5〜8 と §3.12（Longhorn の設定は変えていないので、§3.11 の 2〜4 は無い）。
 
@@ -709,12 +717,19 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
 本番の 192.168.1.113（etcd のリーダーではない）では、28 秒の間に 6 回失敗した（10:45:32〜10:46:00Z）。Pi 5 は再起動から 44 秒で Ready に戻った（`results/stage-c/192.168.1.113.md` §4）。
 ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。
-control-plane が告知している `externalTrafficPolicy: Cluster` の LoadBalancer も同じく約 10 秒途切れる。2026-10-18 10:08Z（worker の 5 台を終えた後）は、.112 が `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）、.111 が `natsumi-sshd`（`::132`）を告知していた（`results/stage-c/oeilvert.md` §8）。§2.4 の監視は v4 の VIP と gated-v4 しか見ないので、これらの途切れは監視に出ない。control-plane の作業の前に、§3.9 のやり方で読み直して記録する。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
+control-plane が告知している `externalTrafficPolicy: Cluster` の LoadBalancer も同じく約 10 秒途切れる（.112 の `h2-sshd` と `natsumi-sshd-aki` は、再起動の間ほかのノードへ移り、約 1 分後に .112 へ戻った）。2026-10-18 10:08Z（worker の 5 台を終えた後）は、.112 が `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）、.111 が `natsumi-sshd`（`::132`）を告知していた（`results/stage-c/oeilvert.md` §8）。§2.4 の監視は v4 の VIP と gated-v4 しか見ないので、これらの途切れは監視に出ない。control-plane の作業の前に、§3.9 のやり方で読み直して記録する。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
 原因: VIP は MetalLB の LoadBalancer の Service `kube-system/porkadot-kubernetes`（`externalTrafficPolicy: Cluster`、selector は kube-apiserver の Pod）である。
 ノードを再起動し始めてから、そのノードの apiserver の Pod が Endpoints から外れるまでの間、kube-proxy がそこにも振り分けるので、要求の一部が失敗する。
 
-段 C ではこれを受け入れる（数十秒で、`kubectl` はやり直せば通る。Pod の中から API を使うものは、client-go がやり直す）。§2.4 の監視と確認は、失敗しても続く形にしておく。
+**同じ原因で、ほかのノードの leader election を使う controller が 1 回再起動することがある。** Pod から `kubernetes` Service（10.254.0.1:443）への要求の一部も止まりかけた apiserver に振り分けられるので、リーダーの Pod が lease の更新に失敗し、`leader election lost` でプロセスごと止まる（kubelet がすぐ再起動する）。本番では次が 1 回ずつ再起動した。どれもすぐに Running に戻った。
+
+- .113 の再起動（10:45Z）: `longhorn-system` の `csi-attacher`（chirico）、`csi-resizer`（pablo）
+- .112 の再起動（11:53Z）: `gated-system/gated`（chirico）、`longhorn-system` の `csi-snapshotter`（pablo）
+
+どの Pod がリーダーかで落ちる controller が変わる（リーダーでない Pod は落ちない）。**gated のリーダーの Pod が落ちると、gated の LoadBalancer（gated-v4・v6、`Local`）の告知がほかの gated の Pod のノードへ移り、§2.4 の監視の LB が 1 回ほど失敗する**（.112 の作業の 11:53:56Z。`results/stage-c/192.168.1.112.md` §4.1）。§5.2 の 10 で、再起動したものを記録する。
+
+段 C ではこれを受け入れる（数十秒で、`kubectl` はやり直せば通る。Pod の中から API を使うものは、client-go がやり直す。leader election で落ちた controller は kubelet が再起動する）。§2.4 の監視と確認は、失敗しても続く形にしておく。
 apiserver が止まりきってから外れるまで待つ方法は、段 C の範囲の外とした。候補を注記として残す。**どれも dev で確かめていないので、段 C では使わない。** 使うなら、K8s の段の dev の検証で確かめてから runbook に入れる。
 
 - 再起動の前に kubelet を先に止める（`sudo systemctl stop kubelet`）。Node が NotReady になり、node lifecycle controller がそのノードの Pod を NotReady にして Endpoints から外すのを待ってから（`kubectl --context fraction -n kube-system get endpointslices -l kubernetes.io/service-name=porkadot-kubernetes` で対象の IP の `ready` が false になる）、再起動する。apiserver はその間も動いているので、失敗する時間がなくなる見込み。Node が NotReady の間（約 40 秒〜）に taint による Pod の退去（既定 300 秒）が始まらないうちに再起動すること
