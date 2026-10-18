@@ -1,0 +1,90 @@
+{
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+        "annotations": {},
+        "labels": {
+            "app": "nfsd",
+            "region": "fraction"
+        },
+        "name": "nfsd",
+        "namespace": "nfsd"
+    },
+    "spec": {
+        "selector": {
+            "matchLabels": {
+                "app": "nfsd",
+                "region": "fraction"
+            }
+        },
+        "template": {
+            "metadata": {
+                "labels": {
+                    "app": "nfsd",
+                    "region": "fraction"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "image": "gcr.io/google_containers/volume-nfs:0.8",
+                        "name": "nfsd",
+                        "ports": [
+                            {
+                                "containerPort": 2049,
+                                "name": "nfs"
+                            },
+                            {
+                                "containerPort": 20048,
+                                "name": "mountd"
+                            },
+                            {
+                                "containerPort": 111,
+                                "name": "rpcbind"
+                            }
+                        ],
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1024Mi"
+                            },
+                            "requests": {
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "privileged": true
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/exports",
+                                "name": "export"
+                            }
+                        ]
+                    }
+                ],
+                "hostNetwork": true,
+                "nodeSelector": {
+                    "kubernetes.io/arch": "amd64",
+                    "nfsd.unstable.cloud/storage": "yes"
+                },
+                "serviceAccountName": "nfsd",
+                "tolerations": [
+                    {
+                        "effect": "NoSchedule",
+                        "key": "unstable.cloud/storage",
+                        "operator": "Equal"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "hostPath": {
+                            "path": "/export"
+                        },
+                        "name": "export"
+                    }
+                ]
+            }
+        }
+    }
+}
