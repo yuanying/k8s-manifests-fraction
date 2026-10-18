@@ -139,6 +139,13 @@ braque の NFS は、バックアップのほかに次も使っている（調�
 
 braque の停止の後、NFS を使う Pod は自分で戻る。braque の作業では、動画のサイトの movies（carib2、pondo2、shja2）が liveness probe で、`docker/registry` が `stale NFS file handle` で CrashLoopBackOff になり、nfsd が戻った後、手を加えずに 1 分ほどで Running に戻った（`results/braque.md` §3.4）。
 
+**注意: braque が止まっている間は、LAN から Service の IP（10.254.0.0/16）に届かず、LAN で `fraction.cluster` の名前を引けない。**
+
+- 家のルーター jumelle（net-fraction-private の `hosts/jumelle/config.yaml` の routes、`docs/requirements.md` §6）に、Service の CIDR 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っている。LAN の dnsmasq は `fraction.cluster` を 10.254.0.10（クラスタ DNS）に条件付きで転送している
+- braque が止まる間（§3.4 の 9、§3.5 の 4 の再起動）、LAN から Service の名前や IP で入るもの（例: `ssh dev@h2.fs.svc.fraction.cluster`、10.254.0.170）は切れる。braque の作業中に実際に切れた（`results/braque.md` §5.1）
+- 作業端末の kubectl は API の VIP（192.168.1.101）を使うので影響を受けない。MetalLB の LoadBalancer の IP（192.168.1.200 など）も Service の CIDR の外なので、この経路には依らない
+- drain だけでは影響は無い（kube-proxy は DaemonSet で、braque は動いている）
+
 **注意: braque を止めている間は、`registry.fraction.jp` からイメージを pull できない。**
 
 - `registry.fraction.jp` のイメージを使う Pod（2026-10-17 の読み取りでは `llm-wiki/llm-wiki` と `holyorder-preview/preview`。どちらも `imagePullPolicy: IfNotPresent`）は、動いている間は影響を受けない。ただし、その間に別のノードへ移ると、移った先にイメージが無ければ `ImagePullBackOff` になる。braque が戻れば pull し直して上がる
@@ -376,9 +383,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
    - braque・chirico・duchamp は 2026-01 以来の再起動である。起動しない場合に備えて、コンソールを用意しておく。
    - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分、oeilvert（9 日前に再起動していた）では約 2 分かかった（どれも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない。
      braque では止めてから約 30 秒で kernel が起動したが、`systemd-networkd-wait-online.service` が 2 分待って失敗する（更新前から）ので、起動に 2 分 40 秒〜3 分かかった
-   - **MetalLB の LoadBalancer の announce が別のノードへ移り、その瞬間つながらなくなることがある。** speaker は DaemonSet なので、drain では announce は移らない。
-     braque の 24.04 の再起動（§3.5 の 4）では、`fs/h2-sshd` と `natsumi/natsumi-sshd-aki` が 192.168.1.112 へ、`porkadot-kubernetes`（VIP）が pablo へ移り、h2 への ssh が一度切れた（`results/braque.md` §5）。braque には speaker の Pod が無いので、なぜ braque の再起動で移ったのかは分かっていない。
-     どの LoadBalancer をどのノードが announce しているかは、`kubectl --context fraction get events -A --field-selector reason=nodeAssigned` で見られる（events は 1 時間ほどで消えるので、再起動の前後で見る）。再起動の前に、対象のノードが announce している LoadBalancer があれば、その間つながらなくなることをユーザーに伝える。pablo（speaker がある）も同じ
+   - **braque を再起動している間は、LAN から Service の IP（10.254.0.0/16）に届かず、LAN で `fraction.cluster` の名前を引けない。** 家のルーター（jumelle）に 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っており、LAN の dnsmasq は `fraction.cluster` を 10.254.0.10 に転送しているため（§2.1.1）。再起動の前にユーザーに伝える
 10. 再起動の後、6 と 7 の確認をもう一度行う。加えて §3.7 の 8〜13（ノードごとの確認）を行う。
     - **braque**: `zpool status` と `findmnt /export` で、`tank1` が取り込まれて `/export` が `tank1/export` であることを、真っ先に確かめる。
       取り込まれていなければ、nfsd の Pod は root のディスクの空の `/export` を公開してしまう。✋ `sudo zpool import tank1` で取り込み、✋ nfsd の Pod を消して作り直させる（Pod は取り込む前の `/export` をバインドしたままなので）。`zfs-import-cache.service` が disabled なら ✋ enable する（`results/braque.md` §3.4）
@@ -470,6 +475,7 @@ conffile の質問と「不要になったパッケージを削除するか」�
    - `/etc/apt/sources.list.d/` に `third-party.sources` ができることがある。もとの `sources.list` にあったコメントアウト済みの third-party の行を deb822 に移したもので、`Enabled: no` なら何もしない（oeilvert）
    - `dpkg -l containerd runc` が ~24.04 の版
 4. ✋ 再起動する（`sudo systemctl reboot`）。再起動はユーザーに知らせ、コンソールで見られることを確かめてから行う。
+   **braque** では、再起動の間、NFS に加えて、LAN から Service の IP（10.254.0.0/16）と `fraction.cluster` の名前解決が使えない（§2.1.1、§3.4 の 9）。ユーザーに伝えてから再起動する
 5. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
 6. ✋ `irqbalance` を入れ直す（`sudo apt-get install -y irqbalance`）。`do-release-upgrade` が「不要になったパッケージ」として purge する（chirico、duchamp、oeilvert）。ユーザーの判断で 24.04 でも使う。3 の `history.log` の `Purge:` に `irqbalance` があることを確かめてから入れる
 

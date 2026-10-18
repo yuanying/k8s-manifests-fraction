@@ -250,16 +250,15 @@ braque の追加の確認:
 - ほかのノードから NFS が読める: oeilvert のホストの `shared/nfs`、`fs/data-restore`・`h2-restore`・`sites-restore` の `/backup`、`docker/registry` の `/var/lib/registry`（`holyorder-preview`、`llm-wiki`、`yuanying` のリポジトリがある）
 - `registry.fraction.jp/v2/` は 401（認証が要るという応答）。pull そのものは試していない（作業端末に認証情報を置いていないため）
 
-### 5.1 MetalLB の announce が移った
+### 5.1 LAN から Service の IP に届かなくなった
 
-coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.cluster` がつながらなくなったと知らされた。原因は NFS ではなく、MetalLB の L2 の announce が移ったことである。
+coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.cluster` がつながらなくなったと知らされた（24.04 の再起動の間。braque が戻った後はつながった）。原因は NFS ではない。
 
-- `kubectl get events -A --field-selector reason=nodeAssigned`:
-  - 00:18:04Z に `fs/h2-sshd` と `natsumi/natsumi-sshd-aki` が `announcing from node "192.168.1.112"`
-  - 00:18:10Z に `kube-system/porkadot-kubernetes`（VIP 192.168.1.101）が `announcing from node "pablo"`
-- 移った後はつながった。§6 では h2-sshd を含む LoadBalancer の TCP がすべて応答した
-- ただし、**braque には speaker の Pod が無い**（taint を許容していない。調査 §2.3）。h2-sshd の Pod は pablo にあり、どの Service も `externalTrafficPolicy: Cluster` である。22.04 の再起動（23:47Z）では announce は移らなかった（その時刻の `nodeAssigned` の event は無い）。speaker のログにも、移る前にどのノードが announce していたかは残っていない
-- そのため、なぜ braque の 24.04 の再起動で announce が移ったのかは分かっていない。runbook §3.4 の 9 に、再起動で announce が移り、つながらなくなることがあることと、確かめ方を足した
+- 家のルーター jumelle（net-fraction-private の `hosts/jumelle/config.yaml` の routes、`docs/requirements.md` §6）に、Service の CIDR 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っている。LAN の dnsmasq は `fraction.cluster` を 10.254.0.10 に条件付きで転送している（ユーザーの指摘で分かった）
+- そのため、braque が止まる間は、LAN から Service の IP（`h2.fs.svc.fraction.cluster` = 10.254.0.170 など）への接続と、LAN での `fraction.cluster` の名前解決ができなくなる。22.04 の再起動（§3.4）の間も同じだったはずである
+- 作業端末の kubectl は API の VIP（192.168.1.101）を使うので影響は無かった
+- 同じ時刻（00:18:04Z と 00:18:10Z）に MetalLB の `nodeAssigned` の event（`fs/h2-sshd` と `natsumi/natsumi-sshd-aki` が 192.168.1.112、`porkadot-kubernetes` が pablo）も出ていたが、braque には speaker が無く、ssh が切れたこととの関係は薄い
+- runbook §2.1.1、§3.4 の 9、§3.5 の 4 に、braque の停止中は LAN から 10.254.0.0/16 と `fraction.cluster` の名前解決が使えないことを足した
 
 ## 6. uncordon と後始末（runbook §3.8）
 
@@ -293,7 +292,8 @@ coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.clust
 - §2.1.1: braque の NFS を使うものに `fs/*-restore` の 3 つを足した。braque が戻った後、NFS を使う Pod が CrashLoopBackOff から自分で戻ること
 - §3.3: braque では、ZFS の pool を起動時に取り込む unit が enable されているかを確かめる
 - §3.4 の 0: braque の nfsd のイメージを控えたこと
-- §3.4 の 9: braque での起動の時間。**再起動で MetalLB の announce が移り、つながらなくなることがあること**と、`nodeAssigned` の event での確かめ方（pablo も同じ）
+- §2.1.1、§3.4 の 9、§3.5 の 4: **braque が止まっている間は、LAN から Service の IP（10.254.0.0/16）に届かず、`fraction.cluster` の名前を引けない**（ルーターの静的ルートが braque 経由）
+- §3.4 の 9: braque での起動の時間
 - §3.4 の 10: braque では、まず `tank1` が取り込まれていることを確かめ、取り込まれていなければ取り込んで nfsd の Pod を作り直す
 - §3.5 の 3: braque では `ufw` が消えなかった
 - §3.7 の braque: nfsd のコンテナの `/exports` が `tank1/export` であること。`exportfs` の警告は前から
@@ -306,4 +306,4 @@ coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.clust
 - `zfs-import-cache.service` を enable した（ユーザーの承認）。これで起動時に `tank1` が取り込まれる
 - nfsd のイメージ `gcr.io/google_containers/volume-nfs:0.8` は containerd 2.x では pull し直せない。braque の containerd の中のイメージが消えると nfsd が上がらなくなる（`/root/volume-nfs-0.8.tar` を `ctr -n k8s.io images import` で戻す）。別のイメージへの置き換えは、このタスクの範囲外
 - `systemd-networkd-wait-online.service` が毎回 2 分待って失敗し、起動を遅らせている（更新前から）
-- MetalLB の announce が braque の再起動で移った理由は分かっていない（§5.1）
+- LAN から Service の CIDR（10.254.0.0/16）への経路が braque 1 台に依存している（§5.1）。braque を止めるたびに、Service の名前で LAN から入るものが切れる
