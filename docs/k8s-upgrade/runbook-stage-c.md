@@ -227,7 +227,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
 **この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
-本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
 
 読み直し方:
 
@@ -489,7 +489,7 @@ sudo systemctl reboot
 | 1 | Node | `kubectl --context fraction get node <ノード> -o wide --show-labels` | Ready（SchedulingDisabled）。CONTAINER-RUNTIME が `containerd://2.3.x`、VERSION が v1.29.8。ラベルが残っている |
 | 2 | cnidaria | `kubectl --context fraction -n kube-system get pods -o wide --field-selector spec.nodeName=<ノード> -l app.kubernetes.io/name=cnidaria` | **1/1 Running（Ready）**。CrashLoopBackOff になっていたら、`kubectl --context fraction -n kube-system logs <Pod> --previous` を記録し、Ready になるまで待つ。ログが `dial tcp 10.254.0.1:443: connect: connection refused` で、数分のうちに Ready に戻れば想定どおり。ほかのエラーか、5 分たっても戻らなければ止める |
 | 3 | cnidaria の経路と規則 | `verify-nodes.sh` | 全項目 PASS（ベースラインと同じ）。cnidaria のログに、2 の起動の直後のもの以外の error が無い |
-| 4 | DaemonSet の Pod | `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>` | 全部 Running。再起動の分だけ再起動回数が 1 増えるのはよい。MetalLB の speaker は 2 と同じ理由で数回 CrashLoopBackOff になってから戻る。数分待って Running に戻らなければ止める |
+| 4 | DaemonSet の Pod | `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<ノード>` | 全部 Running。再起動の分だけ再起動回数が 1 増えるのはよい。MetalLB の speaker は 2 と同じ理由で数回 CrashLoopBackOff になってから戻る。`longhorn-csi-plugin` も、longhorn-manager が上がるまで `node-driver-registrar` が `/csi/csi.sock` に繋がらず（`Error connecting to CSI driver`）、数回 CrashLoopBackOff になってから 3/3 に戻る（本番の duchamp で 3 回、pablo で 4 回）。数分待って Running に戻らなければ止める |
 | 5 | ストリーミング | 対象のノードの Pod に `kubectl --context fraction logs` | ログが読める |
 | 6 | iptables | ノードで `sudo iptables -S FORWARD \| head -3`、`sudo ip6tables -S FORWARD \| head -3` | `CNIDARIA-FWD` へのジャンプが先頭（oeilvert は §4.3） |
 | 7 | ディスク、ZFS | `lsblk`、`df`。braque と oeilvert は `sudo zpool status`、`findmnt /export`（braque） | Longhorn のディスクがマウントされている。pool が ONLINE。**braque は `tank1` が取り込まれ、`/export` が `tank1/export` であることを真っ先に見る**（OS 更新の手順書 §3.4 の 10） |
