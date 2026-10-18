@@ -52,6 +52,8 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 
 どちらもパスワードなしで sudo できる。以下、ノードの上のコマンドは `sudo` を付けて書く。
 
+- control-plane（Pi）には en_US.UTF-8 のロケールが無い。作業端末の `LC_ALL` が SSH で渡ると `bash: warning: setlocale: LC_ALL: cannot change locale` が出る。害は無いが、`unset LC_ALL` してから SSH すると出ない
+
 ### 1.3 porkadot は流さない
 
 段 C では porkadot のコマンドを流さない（計画 §5.4）。
@@ -654,6 +656,8 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
    - `etcdctl endpoint status --cluster -w table`、`etcdctl endpoint health --cluster -w table`: 3/3 healthy、raft index がそろっている、リーダーがどれか
    - controller-manager と scheduler の置き場所（§2.3 の 11 のコマンド）。**同じ master に同じ component が 2 つ載っていないか**。載っていても 3 のとおり 1 つずつ移せばよいが、その master の作業では 2 つとも移すことになるので、時間を見ておく
    - `kubectl --context fraction get pods -A -o wide --field-selector spec.nodeName=<IP>`: 2026-10-18 は .113 に cnidaria、etcd、kube-apiserver、kube-controller-manager、kube-proxy、kube-scheduler、speaker、node-exporter、smart-exporter が載っている
+   - **.113 の作業の後（2026-10-18 10:47Z）、controller-manager と scheduler は .111 と .112 に 1 つずつで、.113 には無い**（`results/stage-c/192.168.1.113.md` §6）。.112 の作業では .112 の 2 つが .113 へ移る見込み。.111 の作業の時点では .111 と .113 に 1 つずつになり、.111 の 2 つは .112 へ移る見込み
+   - MetalLB の告知（§3.9 のやり方。§5.3）。.113 は何も告知していなかった
 2. ✋ `infra-admin` のトークンを発行する。
 3. ✋ cordon し、controller-manager と scheduler の Pod を 1 つずつ移す。
 
@@ -682,10 +686,12 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
    ```
 
    - `move-leader` はリーダーに向けて流す。`etcd.env` の `ETCDCTL_ENDPOINTS` を読み込んだまま `--endpoints` を付けると止まるので（§1.5）、`unset ETCDCTL_ENDPOINTS` してから流す。この形は dev の .113・.111・.112 で通した
-   - 移す先は、次に作業しないノードにする（.113 の作業なら .111）
+   - 移す先は、次に作業しないノードにする（.113 の作業なら .111、.112 の作業なら .113（`57ec6f12ac7b683e`）、.111 の作業なら .113）
+   - 2026-10-18 は .112（`fbb0c648cf5852a5`）がリーダーで、.113 の作業の前後で変わっていない（.113 はリーダーでなかったので流していない）。**.112 の作業では、リーダーのままならここで .113 へ移す**
    - 移せなかった場合も、再起動でリーダーは残りのメンバーへ移る（dev の .112 では `move-leader` が止まったまま進め、再起動でリーダーが .113 に移った。raft term が 1 つ進んだ）。ただし移るまでの選挙の分だけ書き込みが止まるので、移してから再起動するのを基本にする
 5. ✋ §3.4（リポジトリ、鍵、pin）。arm64 なので、`docker.sources` の `Architectures` が `arm64`、`apt-cache policy containerd.io` の候補が `2.3.x` であること。
 6. ✋ §3.5（`containerd.io` を入れる）。**arm64 で入れるのは .113 が初めてになる**（§8.4）。模擬の結果が amd64 と同じ形（`Remv containerd`、`Remv runc`、`Inst containerd.io ... [arm64]`）であることを読む。
+   - .113 では amd64 と同じ形だった。模擬は `0 upgraded, 1 newly installed, 2 to remove and 3 not upgraded`（`3 not upgraded` は当たっていない Ubuntu の `apparmor`、`libapparmor1`、`snapd`。.111 は `snapd` だけなので数が違ってよい）。conffile は `Using current old file as you requested.` が出て、手元の config が残った（`results/stage-c/192.168.1.113.md` §2.2）
 7. §3.6 の確認。加えて `etcdctl endpoint health --cluster -w table` が 3/3 healthy（containerd の入れ替えで etcd と apiserver のコンテナは止まらない。dev で止まらなかった）。
 8. ✋ §3.7（kubelet の再起動）。Node が Ready,SchedulingDisabled、`containerd://2.3.x`。Pod の再起動回数が増えていない。etcd 3/3 healthy。apiserver の Pod が 1/1。§2.4 の監視に失敗が無い（dev では入れ替えと kubelet の再起動の間、VIP の失敗は無かった）。
 9. ✋ 再起動する（`sudo systemctl reboot`）。
@@ -701,6 +707,7 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 ### 5.3 再起動の間の VIP の途切れ
 
 dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
+本番の 192.168.1.113（etcd のリーダーではない）では、28 秒の間に 6 回失敗した（10:45:32〜10:46:00Z）。Pi 5 は再起動から 44 秒で Ready に戻った（`results/stage-c/192.168.1.113.md` §4）。
 ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。
 control-plane が告知している `externalTrafficPolicy: Cluster` の LoadBalancer も同じく約 10 秒途切れる。2026-10-18 10:08Z（worker の 5 台を終えた後）は、.112 が `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）、.111 が `natsumi-sshd`（`::132`）を告知していた（`results/stage-c/oeilvert.md` §8）。§2.4 の監視は v4 の VIP と gated-v4 しか見ないので、これらの途切れは監視に出ない。control-plane の作業の前に、§3.9 のやり方で読み直して記録する。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
