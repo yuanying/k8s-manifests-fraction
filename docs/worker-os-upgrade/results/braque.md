@@ -157,3 +157,153 @@ runbook §2.1.1 の一覧のほかに、`fs/data-restore`、`fs/h2-restore`、`f
   - 下に隠れた root のディスクの `/export/index.html` は残っている（害は無いので消していない）
 - NFS を使う Pod への影響: `carib2`、`pondo2`、`shja2` の movies は liveness probe で再起動して CrashLoopBackOff に、`docker/registry`（pablo）は `stale NFS file handle` でコンテナを作れず CrashLoopBackOff になった。どれも作り直した nfsd の Pod が上がった後、手を加えずに Running に戻った（23:54:01 に 0 個）。oeilvert のホストの `shared/nfs` と `fs/*-restore` の 3 つは読めた
 - `zfs-import-cache.service` を enable したので、24.04 の再起動（§3.5 の 4）では起動時に取り込まれる見込み
+
+## 4. `do-release-upgrade`（runbook §3.5）
+
+### 4.1 前提の確認（§3.5 の 1）
+
+- `apt list --upgradable` は空。`/var/run/reboot-required` は無い。`/` の空きは 87G。`sources.list.d` は `docker.list.disabled-20261017` だけ
+- `Prompt=lts`、`ubuntu-release-upgrader-core` は 1:22.04.21。`do-release-upgrade -c` は `New release '24.04.5 LTS' available`
+- 手元で変わっている conffile は chirico、duchamp と同じ: dpkg の md5 が合わないのは `/etc/sudoers`、`/etc/multipath.conf`、`/etc/containerd/config.toml`（`containerd.io` の `rc` の残り）。ucf で合わないのは `/etc/ssh/sshd_config`
+
+### 4.2 実行（非対話）
+
+| 時刻（UTC） | 出来事 |
+|---|---|
+| 23:54:21 | `systemd-run --unit=release-upgrade --setenv=DEBIAN_FRONTEND=noninteractive --setenv=UCF_FORCE_CONFFOLD=1 do-release-upgrade -f DistUpgradeViewNonInteractive` |
+| 23:59:33 | パッケージの入れ替えが始まった（`history.log`） |
+| 23:59:40、00:03:08〜00:11:49 | **作業端末から新しい SSH の接続ができなかった**。20 秒ごとに見て、00:03〜00:11 の約 9 分続いた |
+| 00:08:43 | `/etc/sudoers` の conffile の質問に `no`（手元の版を残す）と答えた（`main.log`） |
+| 00:14:30〜00:14:55 | 不要になったパッケージの purge |
+| 00:15:03 | `confirmRestart() called`（main.log の最後）。unit は `Result=success`、`ExecMainStatus=0`。再起動はしていない |
+
+所要時間は約 21 分。
+
+### 4.3 再起動の前の確認（§3.5 の 3）
+
+conffile の扱い:
+
+| ファイル | 結果 |
+|---|---|
+| `/etc/sudoers` | 手元の版のまま（`%sudo ALL=(ALL:ALL) NOPASSWD:ALL`）。`sudo -n true` が通る。メンテナの版は `/etc/sudoers.dpkg-dist` に置かれた |
+| `/etc/ssh/sshd_config`（ucf） | 手元の版のまま（末尾に `PasswordAuthentication no`） |
+| `/etc/multipath.conf` | 質問は出ず、addon の版のまま（multipath-tools 0.9.4-5ubuntu8.2） |
+| `/etc/default/nfs-common`（ucf） | 手元の版のまま。`.ucf-dist` が新しく置かれた |
+| `/etc/containerd/config.toml` | §3.4 で作った version 3 のまま |
+
+削除されたもの（`/var/log/dist-upgrade/history.log`。Remove 48 個、Purge 60 個）:
+
+- `Remove:` は、24.04 で名前が変わったライブラリの古い名前（`libcurl4`、`libext2fs2` など）と、`gpg-wks-server`、`python3-distutils`、`usrmerge`
+- `Purge:` は 5.15.0-164 の kernel 一式、python3.10、`perl-modules-5.34`、**`irqbalance`**、`isc-dhcp-client`、`isc-dhcp-common`、`binutils` 一式、`policykit-1`、`pkexec`、`ubuntu-advantage-tools` など（chirico、duchamp と同じ）
+- **Remove と Purge のどちらにも入っていないもの**: `containerd`、`runc`、`zfsutils-linux`、`zfs-zed`、`open-iscsi`、`nfs-common`、`multipath-tools`、`sudo`、`openssh-server`、`ufw`。どれも 24.04 の版で入っている。`ufw` は消えなかった（`iptables-persistent` が無いため。runbook §3.5 の 3 の見込みどおり）
+
+版（再起動の前）: `containerd` 2.2.1-0ubuntu1~24.04.3、`runc` 1.3.4-0ubuntu1~24.04.1、`zfsutils-linux` 2.2.2-0ubuntu9.5、`nftables` 1.0.9-1ubuntu0.1、`multipath-tools` 0.9.4-5ubuntu8.2、`open-iscsi` 2.1.9-3ubuntu5.5、`openssh-server` 1:9.6p1-3ubuntu13.20。kernel は 5.15.0-198 と 6.8.0-147。6.8.0-147 の modules に `zfs.ko`、`spl.ko`、`nfsd.ko` があることを確かめた。
+
+apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261017`。`third-party.sources` はできなかった。
+`zfs-import-cache.service` は enabled のまま。pool は healthy、`/export` はマウントされている。cnidaria の経路は 7 本のまま。
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 00:17:47 | 4: `systemctl reboot`（ユーザーが承認） | journal は 00:17:53 に止まった。kernel の起動は 00:18:30（`uptime -s`）。00:21:02 に SSH が上がり、Ready（SchedulingDisabled）、Ubuntu 24.04.5、6.8.0-147-generic、`containerd://2.2.1` |
+
+- 止めてから kernel が起動するまで約 40 秒。起動は 3 分 2 秒（firmware 24.6s、loader 10.6s、kernel 5.6s、userspace 2min 21s）。userspace のほとんどは 22.04 のときと同じく `systemd-networkd-wait-online.service` の時間切れ
+- **ZFS は起動時に取り込まれた**（`zfs-import-cache.service` が 00:18:49 に active）。`/export` は `tank1/export`。nfsd の Pod のコンテナの `/exports` も `tank1/export`
+
+## 5. 24.04 での確認（runbook §3.6・§3.7）
+
+版:
+
+| 項目 | 値 |
+|---|---|
+| OS | Ubuntu 24.04.5 LTS |
+| kernel | 6.8.0-147-generic |
+| containerd | 2.2.1-0ubuntu1~24.04.3（`containerd://2.2.1`） |
+| runc | 1.3.4-0ubuntu1~24.04.1 |
+| nftables | 1.0.9 |
+| zfsutils-linux | 2.2.2-0ubuntu9.5（pool は 2.1 のまま。`zpool upgrade` はしていない） |
+| kubelet | v1.29.8 |
+| irqbalance | 1.9.3-2ubuntu5（再起動の後に入れ直した） |
+
+- §3.6: `/etc/containerd/config.toml` は §3.4 で作った version 3 のまま（`SystemdCgroup = true`、`registry.k8s.io/pause:3.10.1`）。migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。containerd と kubelet は active。kubelet は起動直後に 1 度 containerd の socket が無くて失敗し、やり直して上がった（ほかの 3 台と同じ）。`setup-containerd` の再実行は要らなかった
+- 00:21:57: ✋ `apt-get install -y irqbalance`（§3.5 の 6）。1.9.3-2ubuntu5 が入り、active
+
+| # | 確認 | 結果 |
+|---|---|---|
+| 1 | Node | Ready,SchedulingDisabled。24.04.5、6.8.0-147-generic、`containerd://2.2.1`。ラベル（`metallb=speaker`、`nfsd.unstable.cloud/storage=yes`、`tgtd.unstable.cloud/storage`、`node-role.kubernetes.io/lapin`）と taint が残っている |
+| 2 | CSR | Pending は無い |
+| 3 | DaemonSet の Pod | cnidaria、kube-proxy、node-exporter、smart-exporter、nfsd が Running（kubelet の起動直後に cnidaria が `Unknown`、node-exporter が 0/1 だったが、30 秒ほどで Running になった） |
+| 4 | ログ | cnidaria と nfsd のログが読める |
+| 5 | cnidaria | `verify-nodes.sh` は 64 PASS、FAIL 0。cnidaria のログに error は無い |
+| 6 | ホストの nft | 1.0.9。`nft list tables` は `inet cnidaria` を含めて rc 0 |
+| 7 | iptables | v4・v6 とも FORWARD の policy は ACCEPT、`CNIDARIA-FWD` へのジャンプが先頭 |
+| 8 | ディスク | `/` のみ（braque は Longhorn のノードでない） |
+| 9 | ZFS | `all pools are healthy`。`tank1/export` が `/export` にマウントされている。`zpool upgrade` はしていない |
+| 10 | multipath と iSCSI | `/etc/multipath.conf` は addon の版。multipathd と `iscsid.socket` は active。iSCSI のセッションは無い |
+| 11 | sudo | `sudo -n true` が通る |
+| 12 | DNS | `cluster-dns` は修正済みの版で active。`porka-dummy01` に 10.254.0.10 と検索ドメイン |
+| 13 | 失敗している unit | `systemd-networkd-wait-online.service` だけ（更新前から）。`ordering cycle` は 0 |
+
+braque の追加の確認:
+
+- nfsd の Pod が Running で、ポート 2049、111、20048 を v4・v6 で待っている。ホストで `nfsd` と `zfs` のモジュールが読み込まれている
+- nfsd のログの `exportfs: / does not support NFS export` は、22.04 のとき（23:53 の起動）にも出ていた
+- ほかのノードから NFS が読める: oeilvert のホストの `shared/nfs`、`fs/data-restore`・`h2-restore`・`sites-restore` の `/backup`、`docker/registry` の `/var/lib/registry`（`holyorder-preview`、`llm-wiki`、`yuanying` のリポジトリがある）
+- `registry.fraction.jp/v2/` は 401（認証が要るという応答）。pull そのものは試していない（作業端末に認証情報を置いていないため）
+
+### 5.1 MetalLB の announce が移った
+
+coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.cluster` がつながらなくなったと知らされた。原因は NFS ではなく、MetalLB の L2 の announce が移ったことである。
+
+- `kubectl get events -A --field-selector reason=nodeAssigned`:
+  - 00:18:04Z に `fs/h2-sshd` と `natsumi/natsumi-sshd-aki` が `announcing from node "192.168.1.112"`
+  - 00:18:10Z に `kube-system/porkadot-kubernetes`（VIP 192.168.1.101）が `announcing from node "pablo"`
+- 移った後はつながった。§6 では h2-sshd を含む LoadBalancer の TCP がすべて応答した
+- ただし、**braque には speaker の Pod が無い**（taint を許容していない。調査 §2.3）。h2-sshd の Pod は pablo にあり、どの Service も `externalTrafficPolicy: Cluster` である。22.04 の再起動（23:47Z）では announce は移らなかった（その時刻の `nodeAssigned` の event は無い）。speaker のログにも、移る前にどのノードが announce していたかは残っていない
+- そのため、なぜ braque の 24.04 の再起動で announce が移ったのかは分かっていない。runbook §3.4 の 9 に、再起動で announce が移り、つながらなくなることがあることと、確かめ方を足した
+
+## 6. uncordon と後始末（runbook §3.8）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 00:23:11 | ✋ `uncordon braque` | Ready |
+| 00:23:11 | ✋ `concurrent-replica-rebuild-per-node-limit` を `5`、`replica-auto-balance` を `least-effort` に戻す | 読み直して `5`、`least-effort`、`block-if-contains-last-replica`、APPLIED true。braque には replica が無いので、再同期は無い |
+| 00:23:19〜00:23:36 | ✋ `netcheck.sh up` → `run` → `down` | `PASS 168 / 168, pods 8/8`。namespace は消した |
+| 00:23:4x | `check-apps.sh` | ベースラインと差が無い |
+| 00:23:48 | トークンを破棄（作業端末のファイルを消した。トークン自体は 02:37 に失効する） | |
+
+- Longhorn: attached healthy 23、detached unknown 2（myao、cg-data。ベースラインと同じ）。replica は 45 個のまま
+- Running / Completed 以外の Pod は 0 個
+
+## 7. 次の 1 台へ進む条件（runbook §3.9。30 分の様子見を除く）
+
+| 条件 | 結果 |
+|---|---|
+| 全 8 台が Ready。braque が 24.04.5 と `containerd://2.2.1` | 満たす |
+| etcd 3/3 healthy、VIP が応答 | 満たす（`/readyz` は `ok`） |
+| Running / Completed 以外の Pod がベースラインから増えていない | 満たす（0 個） |
+| Longhorn のボリュームが healthy、再構築が終わっている | 満たす（braque には replica が無い） |
+| `verify-nodes.sh`、`netcheck.sh`、`check-apps.sh` がベースラインと同じ | 満たす（64 PASS、168/168、差なし） |
+| Longhorn の設定が元に戻っている | 満たす（`5`、`least-effort`、`block-if-contains-last-replica`） |
+| LoadBalancer | TCP のものはすべて応答（gated v4/v6 の 80・443、h2-sshd、natsumi-sshd の 3 つ、VIP の 6443）。minecraft は UDP なので確かめていない |
+| braque の確認（runbook §3.7） | 満たす（nfsd、ほかのノードから NFS が読める、ZFS） |
+| 30 分の様子見 | この記録の時点では 24.04 で起動してから約 6 分 |
+
+## 8. runbook を直した点
+
+- §2.1.1: braque の NFS を使うものに `fs/*-restore` の 3 つを足した。braque が戻った後、NFS を使う Pod が CrashLoopBackOff から自分で戻ること
+- §3.3: braque では、ZFS の pool を起動時に取り込む unit が enable されているかを確かめる
+- §3.4 の 0: braque の nfsd のイメージを控えたこと
+- §3.4 の 9: braque での起動の時間。**再起動で MetalLB の announce が移り、つながらなくなることがあること**と、`nodeAssigned` の event での確かめ方（pablo も同じ）
+- §3.4 の 10: braque では、まず `tank1` が取り込まれていることを確かめ、取り込まれていなければ取り込んで nfsd の Pod を作り直す
+- §3.5 の 3: braque では `ufw` が消えなかった
+- §3.7 の braque: nfsd のコンテナの `/exports` が `tank1/export` であること。`exportfs` の警告は前から
+- §5.7: braque は対処なしで通った
+
+## 9. 申し送り
+
+- braque の `/root` に `containerd.io_1.6.8-1_amd64.deb`、`volume-nfs-0.8.tar`、`cluster-dns.service.bak-20261017`、`full-upgrade-20261017.log` が、`/etc/apt/sources.list.d/docker.list.disabled-20261017` と `/etc/containerd/config.toml.porkadot-bak.20261017` が残っている（runbook §6.2 で全台の後に片付ける。`volume-nfs-0.8.tar` は nfsd のイメージを置き換えるまで残すほうがよい）。`containerd.io` は `rc` の状態
+- root のディスクの `/export`（ZFS の下に隠れたディレクトリ）に、nfsd が書いた `index.html` が残っている
+- `zfs-import-cache.service` を enable した（ユーザーの承認）。これで起動時に `tank1` が取り込まれる
+- nfsd のイメージ `gcr.io/google_containers/volume-nfs:0.8` は containerd 2.x では pull し直せない。braque の containerd の中のイメージが消えると nfsd が上がらなくなる（`/root/volume-nfs-0.8.tar` を `ctr -n k8s.io images import` で戻す）。別のイメージへの置き換えは、このタスクの範囲外
+- `systemd-networkd-wait-online.service` が毎回 2 分待って失敗し、起動を遅らせている（更新前から）
+- MetalLB の announce が braque の再起動で移った理由は分かっていない（§5.1）
