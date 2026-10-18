@@ -9,11 +9,13 @@ CONFIG=${CONFIG_DIR}/config.toml
 
 # runc options section of the CRI plugin.
 # config version 2 (containerd 1.x) and config version 3 (containerd 2.x) use different paths.
+# config version 4 (containerd 2.3+) uses the same path as config version 3.
 V1_RUNC_OPTIONS='plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options'
 V2_RUNC_OPTIONS='plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options'
 
-containerd_major_version() {
-  containerd --version | awk '{print $3}' | sed 's/^v//' | cut -d. -f1
+# Prints the version of containerd without the leading `v` (e.g. 2.4.2).
+containerd_version() {
+  containerd --version | awk '{print $3}' | sed 's/^v//'
 }
 
 generate_default_config() {
@@ -86,6 +88,7 @@ set_systemd_cgroup() {
 
 configure_systemd_cgroup() {
   local major=$1
+  local minor=$2
   local version
   local section
   local rc=0
@@ -99,6 +102,13 @@ configure_systemd_cgroup() {
     3)
       if [[ ${major} == 1 ]]; then
         echo "${CONFIG} is config version 3, but containerd ${major}.x does not support it" >&2
+        exit 1
+      fi
+      section=${V2_RUNC_OPTIONS}
+      ;;
+    4)
+      if [[ ${major} == 1 ]] || (( minor < 3 )); then
+        echo "${CONFIG} is config version 4, but containerd ${major}.${minor} does not support it (2.3 or later is required)" >&2
         exit 1
       fi
       section=${V2_RUNC_OPTIONS}
@@ -128,7 +138,9 @@ EOF
   fi
 }
 
-MAJOR=$(containerd_major_version)
+VERSION=$(containerd_version)
+MAJOR=$(echo "${VERSION}" | cut -d. -f1)
+MINOR=$(echo "${VERSION}" | cut -d. -f2)
 case "${MAJOR}" in
   1|2)
     ;;
@@ -154,7 +166,7 @@ else
     echo "Regenerating ${CONFIG} because it has no version. The original is saved as ${backup}."
     generate_default_config
   fi
-  configure_systemd_cgroup "${MAJOR}"
+  configure_systemd_cgroup "${MAJOR}" "${MINOR}"
 fi
 
 systemctl restart containerd

@@ -86,12 +86,6 @@ addons:
 connection:
   user: yuanying
 
-etcd:
-  # image_tag: 3.5.4-arm64
-  extra_env:
-  - name: 'ETCD_UNSUPPORTED_ARCH'
-    value: 'arm64'
-
 kubernetes:
   cluster_name: fraction
   control_plane_endpoint: '192.168.1.101:6443'
