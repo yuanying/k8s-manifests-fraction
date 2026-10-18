@@ -135,6 +135,16 @@ braque の NFS は、バックアップのほかに次も使っている（調�
 - `docker/registry`（`registry.fraction.jp`）の保存先。braque が止まっている間は、イメージの pull と push ができない（下の注意）
 - 動画のサイト（carib、carib2、pondo、pondo2、shja、shja2）の nginx と movies
 - oeilvert のホストの `/home/yuanying/shared/nfs`（soft マウント）
+- `fs/data-restore`、`fs/h2-restore`、`fs/sites-restore`（`sleep infinity` の Pod）の inline の NFS ボリューム（2026-10-17 の braque の作業で見つけた。`results/braque.md` §1.4）
+
+braque の停止の後、NFS を使う Pod は自分で戻る。braque の作業では、動画のサイトの movies（carib2、pondo2、shja2）が liveness probe で、`docker/registry` が `stale NFS file handle` で CrashLoopBackOff になり、nfsd が戻った後、手を加えずに 1 分ほどで Running に戻った（`results/braque.md` §3.4）。
+
+**注意: braque が止まっている間は、LAN から Service の IP（10.254.0.0/16）に届かず、LAN で `fraction.cluster` の名前を引けない。**
+
+- 家のルーター jumelle（net-fraction-private の `hosts/jumelle/config.yaml` の routes、`docs/requirements.md` §6）に、Service の CIDR 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っている。LAN の dnsmasq は `fraction.cluster` を 10.254.0.10（クラスタ DNS）に条件付きで転送している
+- braque が止まる間（§3.4 の 9、§3.5 の 4 の再起動）、LAN から Service の名前や IP で入るもの（例: `ssh dev@h2.fs.svc.fraction.cluster`、10.254.0.170）は切れる。braque の作業中に実際に切れた（`results/braque.md` §5.1）
+- 作業端末の kubectl は API の VIP（192.168.1.101）を使うので影響を受けない。MetalLB の LoadBalancer の IP（192.168.1.200 など）も Service の CIDR の外なので、この経路には依らない
+- drain だけでは影響は無い（kube-proxy は DaemonSet で、braque は動いている）
 
 **注意: braque を止めている間は、`registry.fraction.jp` からイメージを pull できない。**
 
@@ -305,7 +315,8 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
 
 - **oeilvert**: devbox を使っている人がいないことをユーザーに確かめる。drain の前に、ホストの NFS マウント（`shared/data`、`shared/h`）を使うものが動いていないこと。unattended-upgrades の自動再起動（04:00。ホストの時刻は UTC）が作業中に来ない時間帯であること。
   `homegallery/api` は Deployment の `nodeSelector` が `kubernetes.io/hostname: oeilvert` なので、drain から uncordon まで Pending になる（ユーザーの判断で、止まってよい。`results/oeilvert.md` §2）
-- **braque**: drain で動く Pod は無い（DaemonSet だけ）。NFS（nfsd の Pod）はこの段階では止まらない
+- **braque**: drain で動く Pod は無い（DaemonSet だけ）。NFS（nfsd の Pod）はこの段階では止まらない。
+  ZFS の pool を起動時に取り込む unit が enable されていること（`systemctl is-enabled zfs-import-cache zfs-import-scan`）。braque では `zfs-import-cache` が disabled で、`zfs-import-scan` は `/etc/zfs/zpool.cache` があるので飛ばされ、22.04 の再起動で `tank1` が取り込まれなかった（§3.4 の 10。2026-10-17 に enable した。`results/braque.md` §3.4）。oeilvert は `zfs-import-cache` が enabled で、pablo には ZFS が無い
 - **pablo**: share-manager（homegallery の RWX）と fs の h2、`docker/registry` が他のノードで Running に戻ったことを確かめる。oeilvert のホストの `shared/h` が読めること
 
 ### 3.4 22.04 のまま containerd を置き換える ✋
@@ -315,6 +326,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
 0. ✋ 戻すときのために、`containerd.io` 1.6.8 の deb を残す（braque、chirico、duchamp、pablo）。Docker のリポジトリを外す**前に**、`apt-get download containerd.io=1.6.8-1` でノードの上（例: `/root/`）に落としておく。
    - 24.04 用の Docker のリポジトリには 1.6.8 が無い（1.6.28 以降）。この deb があれば、24.04 の上でも `containerd.io` 1.6.8 に戻せる（dev で確認。§4.2）
    - oeilvert には Docker のリポジトリが無い。`/var/cache/apt/archives/` に `containerd.io_1.6.8-1_amd64.deb` が残っていればそれを控える。無ければ、ほかのノードで落とした deb を写しておく（oeilvert ではキャッシュに無く、chirico の `/root` の deb を写した。sha256 を比べる）
+   - braque では、nfsd のイメージ（`gcr.io/google_containers/volume-nfs:0.8`）も控えた（`sudo ctr -n k8s.io images export /root/volume-nfs-0.8.tar gcr.io/google_containers/volume-nfs:0.8`）。レジストリが Docker の schema 1 でしか返さず、containerd 2.x では pull し直せないため。置き換えの後も containerd の中のイメージは残り、そのまま動いた（`results/braque.md` §1.3）
 1. ✋ Docker の apt リポジトリを外す（braque、chirico、duchamp、pablo）。`/etc/apt/sources.list.d/docker.list` を、apt が読まない名前に変えて残す（戻せるように）。
    - これを先にしないと、次の `full-upgrade` で Docker の `containerd.io` 2.4.2 が入る（調査 §1）。
    - `containerd.io` を hold しても代わりにならない。dev では、hold していても Docker の jammy リポジトリに 2.4.2 があるため、`do-release-upgrade` が「Please install all available updates for your release before upgrading」で更新を拒否した。リポジトリを外して回避した。
@@ -369,8 +381,12 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
    (a) の後は `ip route show proto 200` で経路が戻っていることを見る。経路が戻らない場合: このノードの Pod から他のノードへの通信が届かなくなる（drain 済みなので、影響は DaemonSet の Pod に限られる）。cnidaria-cni-dev の `verify-nodes.sh` で経路の不足を確かめ、このノードの cnidaria の Pod を消して作り直させるか ✋、そのまま 9 の再起動に進む（cnidaria は起動時に経路を入れ直す）。
 9. ✋ ノードを再起動する（`sudo reboot`）。22.04 の更新の反映と、containerd 2.2.1 で起動から上がることの確認を兼ねる。
    - braque・chirico・duchamp は 2026-01 以来の再起動である。起動しない場合に備えて、コンソールを用意しておく。
-   - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分、oeilvert（9 日前に再起動していた）では約 2 分かかった（どれも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない
+   - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分、oeilvert（9 日前に再起動していた）では約 2 分かかった（どれも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない。
+     braque では止めてから約 30 秒で kernel が起動したが、`systemd-networkd-wait-online.service` が 2 分待って失敗する（更新前から）ので、起動に 2 分 40 秒〜3 分かかった
+   - **braque を再起動している間は、LAN から Service の IP（10.254.0.0/16）に届かず、LAN で `fraction.cluster` の名前を引けない。** 家のルーター（jumelle）に 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っており、LAN の dnsmasq は `fraction.cluster` を 10.254.0.10 に転送しているため（§2.1.1）。再起動の前にユーザーに伝える
 10. 再起動の後、6 と 7 の確認をもう一度行う。加えて §3.7 の 8〜13（ノードごとの確認）を行う。
+    - **braque**: `zpool status` と `findmnt /export` で、`tank1` が取り込まれて `/export` が `tank1/export` であることを、真っ先に確かめる。
+      取り込まれていなければ、nfsd の Pod は root のディスクの空の `/export` を公開してしまう。✋ `sudo zpool import tank1` で取り込み、✋ nfsd の Pod を消して作り直させる（Pod は取り込む前の `/export` をバインドしたままなので）。`zfs-import-cache.service` が disabled なら ✋ enable する（`results/braque.md` §3.4）
 
 **porkadot で流すのは、5 の `setup-containerd --node` だけ**（8 で (a) を選んだ場合は `setup-node` も）。`install kubelet` は流さない。
 kubelet のバイナリ（`/opt/bin/kubelet-v1.29.8`）、`kubelet.service`、`config.yaml`、証明書は、OS 更新でも containerd の置き換えでも変わらないので、流す理由が無い（dev では B の順で porkadot を一度も流さずに Ready に戻った）。
@@ -455,10 +471,11 @@ conffile の質問と「不要になったパッケージを削除するか」�
    - 1 で控えた conffile が手元の版のまま。特に `/etc/sudoers` の `NOPASSWD`（`sudo -n true` が通ること）と `/etc/ssh/sshd_config`
    - `/var/log/dist-upgrade/history.log` の `Remove:` と `Purge:` に、`containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`zfsutils-linux`、`sudo`、`openssh-server`、oeilvert の `docker.io` と `libvirt`・`qemu` が無いこと。無くなっていたら、再起動の前に止めて報告する
      （chirico で消えたのは、t64 で名前が変わったライブラリの古い名前、5.15.0-164 の kernel、python3.10、`irqbalance`、`isc-dhcp-client`、`binutils`、`policykit-1` など。`results/chirico.md` §4.2）
-     （oeilvert では、無効だった `ufw` も消えた。noble の `ufw` は `iptables-persistent` と同時に入れられないため。braque と pablo には `iptables-persistent` が無いので、消えない見込み。`results/oeilvert.md` §4.3）
+     （oeilvert では、無効だった `ufw` も消えた。noble の `ufw` は `iptables-persistent` と同時に入れられないため。braque と pablo には `iptables-persistent` が無いので、消えない見込み。`results/oeilvert.md` §4.3。braque では消えなかった）
    - `/etc/apt/sources.list.d/` に `third-party.sources` ができることがある。もとの `sources.list` にあったコメントアウト済みの third-party の行を deb822 に移したもので、`Enabled: no` なら何もしない（oeilvert）
    - `dpkg -l containerd runc` が ~24.04 の版
 4. ✋ 再起動する（`sudo systemctl reboot`）。再起動はユーザーに知らせ、コンソールで見られることを確かめてから行う。
+   **braque** では、再起動の間、NFS に加えて、LAN から Service の IP（10.254.0.0/16）と `fraction.cluster` の名前解決が使えない（§2.1.1、§3.4 の 9）。ユーザーに伝えてから再起動する
 5. 再起動の後、24.04 で上がってくることを確かめる。上がってこなければコンソールで見る（ユーザー作業）。
 6. ✋ `irqbalance` を入れ直す（`sudo apt-get install -y irqbalance`）。`do-release-upgrade` が「不要になったパッケージ」として purge する（chirico、duchamp、oeilvert）。ユーザーの判断で 24.04 でも使う。3 の `history.log` の `Purge:` に `irqbalance` があることを確かめてから入れる
 
@@ -508,7 +525,8 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
   - Docker と devbox: `systemctl is-active docker devbox`、`docker ps` に devbox がある。`mosh.fraction.jp` に SSH（3222）で入れる（ユーザーに確かめてもらう）
   - `netfilter-persistent` が 2021 年の `rules.v6` を読み込んでも、cnidaria の v6 の通信が通ること（`netcheck.sh` で見る）
 - **braque**:
-  - nfsd の Pod が Running。ほかのノードから NFS が読める（oeilvert のホストの `shared/nfs` で `ls`、braque の NFS を使う Pod のどれかで読み書き）
+  - nfsd の Pod が Runningで、コンテナの `/exports` が `tank1/export` であること（`crictl exec <nfsd> df -h /exports`）。ほかのノードから NFS が読める（oeilvert のホストの `shared/nfs` で `ls`、braque の NFS を使う Pod のどれかで読み書き）
+  - nfsd のログの `exportfs: / does not support NFS export` は更新の前から出ている（`volume-nfs` の起動スクリプトによるもの）
   - `registry.fraction.jp` から pull できる
 - **pablo**:
   - fs の h2、`docker/registry`、share-manager が Running（uncordon 前は他のノードで動いている）
@@ -640,7 +658,7 @@ chirico で `setup-containerd` が `Net::SSH::HostKeyMismatch: fingerprint SHA25
 
 - 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。名前をハッシュした行（`|1|...`）は、名前が一致した**最初の 1 行の鍵だけ**を返す。作業端末の `~/.ssh/known_hosts` では、1 つのホストの ED25519、RSA、ECDSA が別々のハッシュの行にある。
   ED25519 は ed25519 の gem が無いので読み飛ばされ、次の RSA の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、「一致しない」になる。`ssh` と net-ssh 単体（`Net::SSH::KnownHosts`）は全部の行を読むので通る
-- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が ED25519 の 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返るので通る見込み（2026-10-17 23:2xZ に sshkit で確かめた）。chirico、duchamp、oeilvert は下の対処をした（duchamp と oeilvert は porkadot を流す前にした。`results/duchamp.md` §1.5、`results/oeilvert.md` §1.5）
+- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が ED25519 の 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返り、対処なしで通った（`results/braque.md` §1.6）。chirico、duchamp、oeilvert は下の対処をした（duchamp と oeilvert は porkadot を流す前にした。`results/duchamp.md` §1.5、`results/oeilvert.md` §1.5）
 - 対処: そのノードの ECDSA の鍵を、名前をハッシュしない行で `~/.ssh/known_hosts` に足す。sshkit はハッシュしない行を先に見る。
   1. 鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、`<IP> ecdsa-sha2-nistp256 <鍵>` の形にする
   2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる。
