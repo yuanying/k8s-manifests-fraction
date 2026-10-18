@@ -32,16 +32,23 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 - **Longhorn のボリュームの多い worker**（chirico、duchamp、oeilvert は 13〜17 の replica を持つ）。dev は 2 つのボリュームだけだった。drain しないので、Pod とボリュームが動き続けることを 1 台ごとに見る
 - **control-plane のマニフェストの戻し**（`install kubernetes` を前の版でやり直す。§7.2）。dev の戻しは kubelet と etcd だけで、control-plane のマニフェストは戻していない
 
+本番の段 C（2026-10-18、`results/stage-c/`）で分かったことのうち、段 1 に効くものも取り込んだ。
+
+- **kubelet の再起動で Longhorn の `replica-auto-balance` が replica を動かすことがある**（duchamp）。段 1 は `install kubelet` のたびに kubelet を再起動する。auto-balance は普段から `disabled` にすることになったので、段 1 の前に `disabled` であることを確かめる（§2.6）
+- **apiserver が入れ替わる間、ほかのノードの leader election を使う controller（gated、Longhorn の CSI sidecar）が 1 回再起動し、gated の LoadBalancer が 1 回途切れることがある**（.112、.111 の再起動）。段 1 では `install kubernetes` の apiserver のローリングと、control-plane の `install kubelet` で起こりうる。ユーザーの判断で許容とし、確認と記録の対象にする（§3.3、§4.3、§8.9）
+- **MetalLB の layer2 で告知しているノードが落ちると、その LoadBalancer が約 10 秒途切れる**（pablo の再起動で VIP）。段 1 ではノードを再起動しないが、告知しているノードを作業の前に読んでおく（§2.7）
+- controller-manager のリーダーの Pod を消すと、代わりが作られるまで 26 秒ほどかかることがある（.112）。段 1 では Pod を消さないが、`install kubernetes` の rollout とロールバックの判断に効く（§3.3、§4.1）
+
 ## 0. 役割と約束ごと
 
 - **承認の節目は 1 つだけ**（計画 §9.1「本番の各段の開始（render の差分を見せてから `install kubernetes` を流す前）」）。この手順書では ✋✋ を付けた。
   - ✋✋ **段 1 の開始**: render の差分（§2.5。この手順書と同じ PR）を見せ、PR をマージしてから、`install kubernetes` を流す前（§3.2 の前）
 - 段 1 は etcd のパッチ更新なので、control-plane の kubelet の前の節目は無い（その節目はマイナー更新を含む段 5 と段 8 だけ）。
 - **節目の間の手順は、ユーザーに知らせるだけで進めてよい。** 変更系の操作には ✋ を付けてあるが、これは「知らせてから行う操作」の印で、1 つずつ承認を取る印ではない。
-- **runbook から外れる操作（ロールバック、想定外の対処、drain、cordon）は、その都度ユーザーの承認を取る。** 想定外のことが起きたら、その場で止めて報告する。
+- **runbook から外れる操作（ロールバック、想定外の対処、drain、cordon、Pod の削除）は、その都度ユーザーの承認を取る。** 想定外のことが起きたら、その場で止めて報告する。
 - 読み取りの確認（`kubectl --context fraction get`、SSH での状態確認）は、知らせずに行ってよい。
 - **1 台ずつ行う。** 1 台を終えて「次の 1 台へ進む条件」（§4.3、§5.3）を満たすまで、次のノードに手を付けない。
-- 時刻はすべて UTC で記録する。
+- 時刻はすべて UTC で記録する。worker のホストの時刻は UTC だが、**control-plane（192.168.1.111〜113）のホストの時刻は Asia/Tokyo（JST）** である。control-plane の `journalctl` や `ls -l` の時刻は 9 時間ずらして読む（段 C の手順書 §0）。
 
 ## 1. 前提
 
@@ -57,8 +64,12 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 
 段 C の手順書 §1.1 と同じ。確認は `kubectl --context fraction`（`fraction-auditor`、read-only）で行う。
 
-段 1 の変更は porkadot が行う（porkadot は `assets/kubernetes/kubeconfig.yaml` の admin の証明書を使い、ノードの上で `kubectl apply` する）。drain も cordon もしないので、**runbook どおりに進む限り `infra-admin` のトークンは要らない。**
-ロールバックや想定外の対処で `kubectl` の変更系の操作が要るときだけ、`infra-admin` の短命トークンを発行する（`kubectl-admin` と書く）。
+段 1 の K8s の変更は porkadot が行う（porkadot は `assets/kubernetes/kubeconfig.yaml` の admin の証明書を使い、ノードの上で `kubectl apply` する）。drain も cordon もしないので、`infra-admin` のトークンが要るのは次のときだけである。
+
+- ロールバックや想定外の対処で `kubectl` の変更系の操作が要るとき（その都度承認を取る。§0）
+
+runbook どおりに進む限り、トークンは要らない（Longhorn の設定も変えない。§2.6）。
+発行と破棄は段 C の手順書 §1.1 と同じ。2〜3 時間の期限で発行し、作業端末のモード 600 のファイルに置き、要る操作が `auth can-i` で yes であることを確かめる。使い終わったら破棄する（`unset ADMIN_TOKEN` とファイルの削除）。以下、変更系のコマンドを `kubectl-admin` と書く（`kubectl --context fraction --token="$ADMIN_TOKEN"` のこと）。
 
 ### 1.3 SSH
 
@@ -103,6 +114,7 @@ ssh ubuntu@<control-plane> 'sudo bash -c ". /etc/etcd/etcd.env && /opt/bin/etcdc
 - `etcd.env` が export する `ETCDCTL_ENDPOINTS` を残したまま `--endpoints` を渡すと止まる。特定のエンドポイントに向けるとき（`move-leader`）は `unset ETCDCTL_ENDPOINTS` してから渡す（§4.2 の 2）
 - **`install kubelet` の後、そのノードの `/etc/etcd/pki` は root 0600 になる**（§8.5）。今は 0644 なので sudo なしでも読めるが、この手順では初めから sudo で流す
 - `install kubelet` の後、そのノードの `/opt/bin/etcdctl` は 3.5.34 を指す
+- control-plane（Pi）には en_US.UTF-8 のロケールが無い。作業端末の `LC_ALL` が SSH で渡ると `bash: warning: setlocale: LC_ALL: cannot change locale` が出る。害は無いが、`unset LC_ALL` してから SSH すると出ない（段 C の手順書 §1.2）
 
 ### 1.6 render に使った secrets と、本番との突き合わせ
 
@@ -169,6 +181,9 @@ curl -fsSL https://dl.k8s.io/release/stable-1.30.txt     # v1.30.14
 | 5 | ノードの再起動 | **しない** | dev の記録 |
 | 6 | 停止時間 | いつでもよい。braque も Pod が止まらない見込みなので時間帯を問わない（§5.1） | 計画 §9.6 |
 | 7 | 段 1 の後 | 健全性を確かめてから段 2 へ（間隔は必須ではない） | 計画 §9.6 |
+| 8 | Longhorn の `replica-auto-balance` | **普段から `disabled`**。段 1 では `disabled` であることを確かめるだけ（§2.6） | 段 C の duchamp、ユーザーの判断（2026-10-18） |
+| 9 | Longhorn の `concurrent-replica-rebuild-per-node-limit`、`node-drain-policy` | 変えない（§2.6） | drain しないため |
+| 10 | leader election を使う controller の 1 回の再起動と、gated の LoadBalancer の 1 回の途切れ | 許容する。記録して、Running に戻ったことを確かめる（§8.9） | 段 C、ユーザーの判断 |
 
 ### 2.2 クラスタ全体のベースライン
 
@@ -193,9 +208,38 @@ curl -fsSL https://dl.k8s.io/release/stable-1.30.txt     # v1.30.14
       -o custom-columns=KIND:.kind,NAME:.metadata.name,GEN:.metadata.generation,IMAGE:.spec.template.spec.containers[0].image
     ```
 
+14. Longhorn の設定（§2.6）: `concurrent-replica-rebuild-per-node-limit`、`replica-auto-balance`、`node-drain-policy`、`default-data-locality`。段 C の後（2026-10-18 12:33Z）は `5`、**`disabled`**、`block-if-contains-last-replica`、`best-effort`
+15. controller-manager と scheduler のリーダー（§4.1）
+
+    ```sh
+    kubectl --context fraction -n kube-system get lease kube-controller-manager kube-scheduler \
+      -o custom-columns=N:.metadata.name,H:.spec.holderIdentity
+    ```
+
+16. MetalLB の layer2 の告知ノード（§2.7）
+17. leader election を使う controller の Pod の再起動回数（`gated-system/gated`、`longhorn-system` の `csi-attacher`、`csi-provisioner`、`csi-resizer`、`csi-snapshotter`。§8.9）
+
 ### 2.3 VIP と LoadBalancer を 1 秒ごとに見る
 
-段 C の手順書 §2.4 と同じ監視を、§3.2 の `install kubernetes` から最後の worker の確認まで流しておく（ログは `./stage-1-probe.log`）。dev では段 1 の間、一度も失敗しなかった。失敗があれば時刻を各台の記録に写す。
+段 C の手順書 §2.4 と同じ監視を、§3.2 の `install kubernetes` の前から最後の worker の確認まで、作業端末で流しておく（読み取り）。**失敗しても止まらずに続く形**にする。
+
+```sh
+n=0
+while true; do
+  t=$(date -u +%FT%TZ)
+  curl -sk -m 2 -o /dev/null -w '%{http_code}' https://192.168.1.101:6443/livez | grep -q 200 || echo "$t FAIL vip"
+  curl -s  -m 2 -o /dev/null http://192.168.1.200/ || echo "$t FAIL lb"
+  n=$((n+1)); (( n % 60 == 0 )) && echo "$t ok $n"
+  sleep 1
+done | tee -a ./stage-1-probe.log
+```
+
+- `http://192.168.1.200/` は gated-v4（`externalTrafficPolicy: Local`）。ホスト名が無いと 404 を返すが、届けば `curl` は成功する（`-f` を付けない）
+- 1 分ごとに `ok` の行が出る。止まっていないことはこれで分かる
+- 作業を分けて進めるときは、その作業の前に流し始め、確認の後に止める。ログは同じファイルに足していく（`tee -a`）
+- FAIL の時刻は、各台の記録に写し、§2.7 の告知ノードと §8.9 の controller の再起動と突き合わせる
+- dev では段 1 の間、一度も失敗しなかった。本番の段 C では、ノードの再起動のときだけ失敗した（VIP 21 回、LB 2 回。`results/stage-c/summary.md` §2.2）。段 1 は再起動しないが、§8.9 の理由で数回の失敗はありうる
+- この監視は v4 の VIP と gated-v4 しか見ない。ほかの LoadBalancer（v6 や `h2-sshd` など）の途切れは出ないので、§2.7 で告知ノードを控えておき、各台の後に `check-apps.sh` で応答を見る
 
 ### 2.4 etcd のバックアップ ✋
 
@@ -239,13 +283,76 @@ secrets は §1.6 のとおり本番と一致していることを確かめて�
 - `ETCD_UNSUPPORTED_ARCH` は、etcd 3.5.12 でも 3.5.34 でも、arm64 では読まれない（etcd の `checkSupportArch` は amd64・arm64・ppc64le・s390x をそのまま通し、env を消してから進む）。消しても起動は変わらず、戻しで残っていても害は無い
 - 作り直した証明書は、作業の当日に render し直すとまた変わる。**当日は render しない**。この PR の `assets/` で流す
 
-✋✋ **段 1 の開始の承認を取る。** この表と PR の差分、§2.2 のベースライン、§2.4 のバックアップを示す。承認を得て PR をマージし、マージした master で §3 に入る。
+### 2.6 Longhorn の設定
+
+**`replica-auto-balance` が `disabled` であることを、段 1 の前に確かめる。** 段 C の後、ユーザーの判断で auto-balance は普段から `disabled` にすることになった（2026-10-18）。段 1 で切り替えることも、最後に戻すことも無い。
+
+段 C の本番の duchamp では、kubelet の再起動（07:52:37Z）で Node に `NodeNotReady` が出て Longhorn の node も約 8 秒 Ready でなくなり、その間に `least-effort` の auto-balance が 2 つのボリュームの replica を pablo に足し、片付けで別の健全な replica（chirico のもの）を消した（`results/stage-c/duchamp.md` §3.1）。Longhorn v1.11.2 の `getReplicaCountForAutoBalanceNode` が not ready のノードの replica を数えないためで、上流の longhorn/longhorn#11730 にあたる。
+段 1 では、どのノードも `install kubelet` で kubelet を再起動するので、同じことが起こりうる（Longhorn の node である chirico、duchamp、oeilvert、pablo）。
+
+確かめ方（読み取り。§2.2 の 14、§3.1、§5.2 の 1）:
+
+```sh
+kubectl --context fraction -n longhorn-system get settings.longhorn.io replica-auto-balance   # disabled、APPLIED が true
+```
+
+- 段 C の後（2026-10-18 12:33Z）は `disabled`
+- `disabled` でなければ、§3 に入らずに止め、ユーザーに確かめる（普段の方針と違うので、誰かが変えた可能性がある）。段 1 の途中で `disabled` でなくなっていたときも、次の 1 台に入らずに止める
+
+**`concurrent-replica-rebuild-per-node-limit` と `node-drain-policy` は変えない。**
+
+- 段 C で rebuild-limit を `0` にしたのは、drain と再起動で止まった replica を、そのノードが戻るまでほかのノードに作り直させないためだった。段 1 は drain も再起動もせず、kubelet の再起動では instance-manager も replica も止まらない（dev、段 C の各台の §3.7）。作り直すべき replica が生じないので、`0` にする理由が無い
+- 逆に `0` にすると、段 1 の間にほかの理由で replica が壊れたときに作り直せず、degraded のままになる。`5` のままのほうが安全である
+- auto-balance が `disabled` なら、kubelet の再起動で Longhorn の node が一瞬 not ready になっても replica は足されない（段 C の pablo 以降の各台で、kubelet の再起動の間に replica は動かなかった）。片付けで健全な replica が消されることも無い
+- `node-drain-policy` は drain のときだけ効くので、関係がない
+- 一瞬の not ready が長引いて replica が failed になったとき（§5.3 の 4）は、rebuild-limit が `5` なので Longhorn が作り直す。そのときは止めて記録し、再同期を待つ
+
+### 2.7 MetalLB の告知ノードを読む
+
+API の VIP 192.168.1.101 は MetalLB の layer2 の LoadBalancer（`kube-system/porkadot-kubernetes`、`externalTrafficPolicy: Cluster`）である。layer2 では 1 つのノードの speaker が告知し、**そのノードが落ちると、ほかの speaker が引き取るまで約 10 秒途切れる**（段 C の pablo の再起動で VIP が 2 回失敗した。`results/stage-c/pablo.md` §4.1、段 C の手順書 §3.9、§5.3）。
+`Cluster` の LoadBalancer の告知は Service の Pod の置き場所と関係なく動くので、control-plane も告知しうる。`Local` のもの（gated-v4・v6、minecraft の `bds`）は Pod のあるノードが告知する。
+
+段 1 はノードを再起動せず、speaker の Pod も入れ替わらない（MetalLB のマニフェストは変わらない）。段 C の各台の kubelet の再起動（§3.7）でも、告知していた pablo を含めて途切れは無かった。それでも、kubelet の再起動で Node が一瞬 NotReady になったり、speaker が再起動したりすると告知が移ることはありうる。そこで、**§3 の前と各台の `install kubelet` の前に告知ノードを読み、記録する**（読み取り）。途切れたら、告知ノードと突き合わせて記録する。
+
+読み方（段 C の手順書 §3.9）:
+
+```sh
+kubectl --context fraction get events -A --field-selector reason=nodeAssigned -o json \
+  | jq -r '.items[]|.metadata.namespace+"/"+.involvedObject.name+" "+.message'
+```
+
+イベントは 1 時間で消える。空なら、各ノードの speaker のログの `serviceAnnounced` / `serviceWithdrawn`（IP ごとの最後のもの）で見る。
+
+```sh
+for p in $(kubectl --context fraction -n metallb-system get pods -l component=speaker -o name); do
+  n=$(kubectl --context fraction -n metallb-system get $p -o jsonpath='{.spec.nodeName}')
+  kubectl --context fraction -n metallb-system logs $p | grep -E 'serviceAnnounced|serviceWithdrawn' \
+    | jq -r --arg n "$n" '.ts as $t | .event as $e | .ips[]? | [$t, $n, $e, .] | @tsv'
+done | sort
+```
+
+2026-10-18（段 C の後、speaker のログで読んだ）は次のとおり。告知先は動くので、当日に読み直す。
+
+| Service | `externalTrafficPolicy` | アドレス | 告知ノード |
+|---|---|---|---|
+| `kube-system/porkadot-kubernetes`（API の VIP） | Cluster | 192.168.1.101 | **pablo** |
+| `gated-system/gated-v4`、`gated-v6` | Local | 192.168.1.200、`::200` | chirico |
+| `fs/h2-sshd` | Cluster | `::131` | 192.168.1.112 |
+| `natsumi/natsumi-sshd` | Cluster | `::132` | 192.168.1.111 |
+| `natsumi/natsumi-sshd-myao` | Cluster | `::133` | duchamp |
+| `natsumi/natsumi-sshd-aki` | Cluster | `::134` | 192.168.1.112 |
+
+- VIP を告知しているノード（今は pablo）の `install kubelet` では、§2.3 の監視を特に見る。約 10 秒の途切れは許容する（`kubectl` はやり直せば通る）。告知を先にほかのノードへ移す操作はしない（runbook から外れる）
+- control-plane が告知している `h2-sshd`、`natsumi-sshd*` は、その control-plane の `install kubelet` の後に `check-apps.sh` で応答を見る
 
 ## 3. control-plane のマニフェストを上げる（`install kubernetes`）
 
 ### 3.1 事前確認
 
+✋✋ **段 1 の開始の承認を取る。** §2.5 の表と PR の差分、§2.2 のベースライン、§2.4 のバックアップ、§2.6 の Longhorn の設定、§2.7 の告知ノードを示す。承認を得て PR をマージし、マージした master で §3.2 に入る。
+
 - §2.2 のベースラインと §2.4 のバックアップが済んでいる。§2.3 の監視が動いている
+- Longhorn の `replica-auto-balance` が `disabled`（§2.6）
 - 全台 Ready、etcd 3/3 healthy、VIP の `/readyz` が `ok`
 - このリポジトリの checkout が §2.5 の PR をマージした master で、`git status --short assets porkadot.yaml` が空（§1.4）
 
@@ -276,14 +383,17 @@ kubectl --context fraction version
 | 1 | `kubectl --context fraction version` | Server が v1.30.14 |
 | 2 | §2.2 の 13 のコマンド | apiserver・KCM・scheduler・kube-proxy が v1.30.14、CoreDNS が v1.11.3。それ以外（cnidaria、MetalLB など）の generation と image がベースラインと同じ |
 | 3 | apiserver | `kube-apiserver` の Pod が 3/3 Ready。VIP の `/readyz` が `ok`、`/version` が v1.30.14 |
-| 4 | KCM と scheduler | 2/2 Ready。置き場所を記録する（別々の master に 1 つずつが望ましい。同じ master に寄っていても段 1 では直さない） |
+| 4 | KCM と scheduler | 2/2 Ready。置き場所とリーダー（§2.2 の 15）を記録する（別々の master に 1 つずつが望ましい。同じ master に寄っていても段 1 では直さない） |
 | 5 | kube-proxy | 8 台で Running。ログに `Using iptables Proxier` |
 | 6 | CoreDNS | Running。どこかのノードの Pod から名前が引ける（`check-apps.sh`） |
 | 7 | Node | 8 台 Ready。kubelet は v1.29.8 のまま（apiserver 1.30 と kubelet 1.29 の組み合わせは skew policy の範囲） |
 | 8 | Pod | Running / Completed 以外がベースラインから増えていない。rollout で入れ替わった Pod のほかに再起動が増えていない |
 | 9 | Longhorn | ボリュームの state と robustness がベースラインと同じ |
-| 10 | §2.3 の監視 | 失敗が無い（dev では apiserver の rollout の間も VIP は途切れなかった） |
+| 10 | §2.3 の監視 | 失敗が無い（dev では apiserver の rollout の間も VIP は途切れなかった）。§8.9 の理由による VIP の数回の失敗と、gated の再起動による LB の 1 回ほどの失敗は、記録したうえで許容する |
 | 11 | warning | `kubectl --context fraction get events -A --field-selector type=Warning` に、rollout の古い Pod の readiness の失敗のほかに新しいものが無い |
+| 12 | leader election を使う controller | §8.9 のコマンド（時刻は §3.2 の開始）。`gated`、Longhorn の CSI sidecar などが 1 回再起動していてもよい。Running に戻っていること、再起動が続いていないことを見て、何が再起動したかを記録する |
+
+- **rollout が途中で 30 秒ほど止まって見えることがある。** Deployment と DaemonSet を進める controller は、controller-manager のリーダーの中で動く。controller-manager 自身の rollout でリーダーの Pod が消されると、残りの controller-manager が lease を取り直すまで何も進まない（段 C の .112 で、リーダーの Pod を消してから代わりが作られるまで 26 秒。`results/stage-c/192.168.1.112.md` §3）。scheduler のリーダーの交代も lease の 15 秒ほどかかる。`rollout status` の `--timeout=10m` の内で待つ。数分たっても進まなければ、lease の holder（§2.2 の 15）と Pending の Pod を見て止める
 
 ここで問題があれば、kubelet にまだ触っていないので、§7.2 で control-plane だけを戻せる。
 
@@ -301,6 +411,14 @@ kubectl --context fraction version
 - dev では、control-plane の `install kubelet` で入れ替わった Pod は etcd の static Pod だけだった（新しい UID）。apiserver、cnidaria、kube-proxy、speaker、KCM、scheduler はそのまま
 - drain も cordon もしない（§2.1）
 
+**controller-manager と scheduler は移さない。** 段 C の §5.2 の 3 では、ノードの再起動の前に 1 つずつ消してほかの master へ移した。段 1 で移さない理由:
+
+- `install kubelet` が再起動するのは kubelet だけで、動いているコンテナは止まらない。そのノードの controller-manager と scheduler は動き続け、リーダーなら lease も更新し続ける（dev では再起動しなかった。段 C の各台の §3.7 でも Pod は再起動しなかった）
+- Node が一瞬 NotReady になっても、taint による退去（既定 300 秒）には届かない
+- 逆に、移すために Pod を消すと、リーダーだった場合に代わりが作られるまで 26 秒ほど controller が止まる（段 C の .112）。得るものが無い
+
+ただし、対象のノードの controller-manager と scheduler の Pod がリーダーかどうかを、作業の前に記録する（§4.2 の 1）。kubelet が 5 分たっても戻らず、そのノードから Pod を退かせる必要が出たときは、runbook から外れる操作として承認を取り、段 C の手順書 §5.2 の 3 のとおり cordon して 1 つずつ移す（controller-manager を先に、リーダーを消したときは代わりが出るまで 30 秒ほど待つ）。
+
 ### 4.2 1 台の手順
 
 1. 読み取りの確認。
@@ -314,6 +432,8 @@ kubectl --context fraction version
 
    - ノードで `ls -l /opt/bin/{kubelet,kubectl,etcdctl,crictl}`、`sudo stat -c '%a %U:%G %n' /etc/etcd/pki/*`
    - 8 台の cnidaria の Pod のログの error の数（§8.1 で、この台の作業で増えた数を数える）
+   - controller-manager と scheduler の置き場所とリーダー（§2.2 の 11、15）。段 C の後（2026-10-18）は、どちらも .112 と .113 に 1 つずつで、リーダーはどちらも .113 の Pod（§4.1 のとおり移さない）
+   - そのノードが告知している LoadBalancer（§2.7）
 2. ✋ 対象が etcd のリーダーなら、リーダーを移す（段 C の手順書 §5.2 の 4 と同じ形。dev の .113・.111 でも通した）。
 
    ```sh
@@ -323,6 +443,8 @@ kubectl --context fraction version
    ```
 
    - 移す先は、すでに上げ終えたメンバーか、まだ上げていないメンバーのうち最後に作業するもの（.113 の作業なら .111、.111 の作業なら .113 か .112）。dev では .113 のリーダーを .111 へ、最後に .111 のリーダーを .112 へ移した
+   - 段 C の後（2026-10-18 12:33Z）のリーダーは .113（`57ec6f12ac7b683e`）。このままなら .113 の作業の前に .111 へ移し、.111 の作業の前に .113 か .112 へ移すことになる。段 C の .112 では、この形で `Leadership transferred` となり、raft term が 1 つ進んだ（`results/stage-c/192.168.1.112.md` §3）
+   - ID は `etcdctl endpoint status --cluster -w table` の ID の列（16 進）を使う
    - 移せなかったときは止める（`install kubelet` で etcd の Pod が作り直されると、選挙の分だけ書き込みが止まる）
 3. ✋ 流す。
 
@@ -347,11 +469,13 @@ kubectl --context fraction version
 | 8 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログの error の増え方は §8.1 のとおり（`no route` が 7〜10 件、1 秒ほどの間） |
 | 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'` | 2/2 ずつ Ready |
 | 10 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.6）のほかに、続くエラーが無い |
-| 11 | §2.3 の監視 | — | 失敗が無い |
+| 11 | §2.3 の監視 | — | 失敗が無い。失敗があれば、§2.7 の告知ノードと 12 の再起動と突き合わせて記録する（§8.9。数回までは許容） |
+| 12 | leader election を使う controller | §8.9 のコマンド（時刻は 4.2 の 3 の開始） | ほかのノードの `gated` や Longhorn の CSI sidecar が 1 回再起動していてもよい。Running に戻り、再起動が続いていない。何が再起動したかを記録する |
+| 13 | 告知していた LoadBalancer | §2.7 の読み方と `check-apps.sh` | 応答する。告知が移ったかを記録する |
 
 次のすべてを満たしてから、次の 1 台に入る。
 
-- 上の 1〜11 がすべて合格
+- 上の 1〜13 がすべて合格
 - 全 8 台の Node が Ready
 - etcd 3/3 healthy、raft index がそろっている
 - Running / Completed 以外の Pod がベースラインから増えていない
@@ -368,15 +492,16 @@ etcd の全メンバーが 3.5.34 になっても、パッチ更新なので前�
 
 ### 5.1 順番
 
-replica 1 のボリューム（最後の replica）の置き場所を、作業の当日に読み直して決める（段 C の手順書 §2.6 のコマンド）。2026-10-18 の読み取り（段 C の chirico の作業の後）では次のとおりで、段 C の手順書の表から変わっている。
+replica 1 のボリューム（最後の replica）の置き場所を、作業の当日に読み直して決める（段 C の手順書 §2.6 のコマンド）。`default-data-locality` が `best-effort` なので、Pod が動くと replica も付いて動く（段 C では prometheus の 2 つの replica が chirico と oeilvert の間で 2 回入れ替わった）。
+段 C の後（`results/stage-c/summary.md`、2026-10-18 12:33Z の読み取り）は次のとおりで、順は変わらない。
 
 | 順 | ノード | replica 1 のボリューム | replica の数 | 理由 |
 |---|---|---|---|---|
-| 1 | pablo | なし | 2 | 手順の確かめに向く。porkadot の bootstrap ノード（段 1 では bootstrap を使わない） |
-| 2 | duchamp | なし | 13 | 冷却ファンが故障中（ターボ停止運用）。再起動はしないので影響は小さい |
+| 1 | pablo | なし | 3 | 手順の確かめに向く。porkadot の bootstrap ノード（段 1 では bootstrap を使わない）。**API の VIP を告知している**（§2.7） |
+| 2 | duchamp | なし | 11 | 冷却ファンが故障中（ターボ停止運用）。再起動はしないので `no_turbo` はそのまま。段 C で auto-balance が replica を動かしたノード（§2.6） |
 | 3 | braque | なし（Longhorn のノードではない） | 0 | NFS と `registry.fraction.jp` の保存先。他の worker が健全な状態で行う（計画 §6.2） |
-| 4 | chirico | `prometheus-...-0` | 13 | |
-| 5 | oeilvert | `prometheus-...-1`、`export-minio-0`〜`3` | 17 | 最後の replica が最も多い。worker の最後にする（計画 §6.2） |
+| 4 | chirico | `prometheus-...-1` | 15 | gated-v4・v6 を告知している（§2.7。`Local` なので gated の Pod が動かなければ告知も動かない） |
+| 5 | oeilvert | `prometheus-...-0`、`export-minio-0`〜`3` | 17 | 最後の replica が最も多い。worker の最後にする（計画 §6.2） |
 
 - 当日の読み取りで replica 1 の置き場所が変わっていれば、少ない順に並べ直す。oeilvert は最後のままにする
 - drain しないので、replica 1 のボリュームも止まらない見込み（dev では、Longhorn のボリュームを使う Pod も instance-manager も再起動しなかった）。止まった場合は §5.3 で止める
@@ -387,7 +512,9 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
 1. 読み取りの確認。
    - `kubectl --context fraction get node <ノード> -o wide`: Ready、v1.29.8
    - 対象のノードの Pod の名前・UID・再起動回数を控える（§4.2 の 1 のコマンド。`spec.nodeName=<ノード>`）
-   - Longhorn: 対象のノードの replica とアタッチされたボリューム。degraded のボリュームが無い（ベースラインのものを除く）
+   - Longhorn: 対象のノードの replica とアタッチされたボリューム、**全ボリュームの replica の置き場所**（§5.3 の 4 で比べる）。degraded のボリュームが無い（ベースラインのものを除く）
+   - Longhorn の `replica-auto-balance` が `disabled`（§2.6。途中で変わっていないこと）
+   - そのノードが告知している LoadBalancer（§2.7）
    - ノードで `ls -l /opt/bin/{kubelet,kubectl,crictl}`
 2. ✋ 流す。
 
@@ -406,11 +533,12 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
 | 1 | Node | `kubectl --context fraction get node <ノード> -o wide` | Ready、VERSION が v1.30.14 |
 | 2 | バイナリ | ノードで `ls -l /opt/bin/{kubelet,kubectl,crictl}`、`cat /opt/cni/bin/.porkadot-cni-plugins-version` | 向き先が `kubelet-v1.30.14`、`kubectl-v1.30.14`、`crictl-v1.30.1`。CNI の印が `v1.4.1`。etcdctl も落ちてくるが worker では使わない |
 | 3 | Pod の再起動 | §5.2 の 1 と同じコマンド | **名前・UID・再起動回数がすべて同じ**（dev では再起動 0）。増えていれば止めて調べる |
-| 4 | Longhorn | 対象のノードの replica が running、ボリュームの state と robustness が §5.2 の 1 と同じ。`instancemanagers` の対象のノードのものが running で、作り直されていない | 同じ |
+| 4 | Longhorn | 対象のノードの replica が running、ボリュームの state と robustness が §5.2 の 1 と同じ。`instancemanagers` の対象のノードのものが running で、作り直されていない。**replica の置き場所が §5.2 の 1 と同じ**（ほかのノードに replica が足されていない。§2.6）。longhorn-manager のログに `could get evicted` や `Schedule replica to node` が無い | 同じ。replica が動いていたら止めて報告する（元に戻す操作はしない。再同期が終わるのを待ち、同じボリュームの replica が同じノードに 2 つ載っていないことを見る） |
 | 5 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログの error は §8.1 のとおり |
 | 6 | MetalLB | 対象のノードの speaker が Running（2026-10-18 は chirico、duchamp、oeilvert、pablo と control-plane の 3 台に載る。braque には無い） | 再起動回数が同じ |
 | 7 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity` のほかに、続くエラーが無い |
-| 8 | §2.3 の監視 | — | 失敗が無い |
+| 8 | §2.3 の監視 | — | 失敗が無い。VIP を告知しているノード（今は pablo）では、告知が移って約 10 秒途切れることがある（§2.7）。記録したうえで許容する |
+| 9 | 告知していた LoadBalancer | §2.7 の読み方と `check-apps.sh` | 応答する。告知が移ったかを記録する |
 
 ノードごとの追加の確認:
 
@@ -420,7 +548,7 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
 
 次のすべてを満たしてから、次の 1 台に入る。
 
-- 上の 1〜8 とノードごとの確認がすべて合格
+- 上の 1〜9 とノードごとの確認がすべて合格
 - 全 8 台の Node が Ready。終えたノードが v1.30.14、まだのノードが v1.29.8
 - etcd 3/3 healthy、VIP が応答する
 - Running / Completed 以外の Pod がベースラインから増えていない
@@ -436,14 +564,16 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
 - apiserver 3/3、controller-manager と scheduler が 2/2（置き場所を記録する）。kube-proxy が 8/8 で iptables
 - CoreDNS が v1.11.3 で Running
 - Running / Completed 以外の Pod が無い（ベースラインのものを除く）
-- Longhorn: attached のボリュームが全部 healthy（detached の 2 つはベースラインのとおり）、instance-manager が全部 running、engine image は v1.11.2 のまま。K8s 1.30 は Longhorn 1.11 の要件（1.25 以上）に入る
+- Longhorn: attached のボリュームが全部 healthy（detached の 2 つはベースラインのとおり）、instance-manager が全部 running、engine image は v1.11.2 のまま。K8s 1.30 は Longhorn 1.11 の要件（1.25 以上）に入る。replica の置き場所がベースラインと同じ（違えばいつ動いたかを記録する）
+- Longhorn の設定: ベースラインのまま（`replica-auto-balance` は `disabled`）
 - cnidaria: 8 台の Pod が Ready、`verify-nodes.sh` が全 PASS、✋ `netcheck.sh` が全 PASS、`hedgedoc/db-postgresql` の NetworkPolicy がノードの nftables に入っている
 - MetalLB: LoadBalancer の Service が応答する（gated、`h2-sshd`、`natsumi-sshd`、minecraft）
 - braque の NFS が応答する
 - `kubectl --context fraction top nodes` が応答し、Prometheus のスクレイプが落ちていない。`apiserver_requested_deprecated_apis` を記録する（段 2 以降で消える API が増えていないか）
 - `kubectl --context fraction get csr` に、段の間に出た新しい CSR が無い（dev では kubelet の証明書を持ち越し、新しい CSR は出なかった）。出ていれば Approved,Issued であること
 - 新しい warning のイベント・ログ（kubelet、apiserver、kube-proxy、cnidaria、etcd）が増えていない（§8 のものは除く）
-- §2.3 の監視の FAIL を集計する（dev では 0）
+- §2.3 の監視の FAIL を集計し、原因（apiserver の入れ替わり、告知ノード、gated の再起動、それ以外）ごとに分けて記録する（dev では 0。段 C の `summary.md` §2.2 と同じ形）
+- 段 1 の間に leader election で再起動した controller の一覧（§8.9）。どれも Running に戻っている
 
 ## 7. ロールバック
 
@@ -562,8 +692,34 @@ kubelet の再起動のたびに `invalid capacity 0 on image filesystem` の wa
 
 全台を同時に止めて起動すると、クラスタは自力で戻らない（dev の記録。static Pod の etcd しか動かず、apiserver の DaemonSet も VIP を広告する MetalLB も起動できない）。段 1 ではノードを再起動しないので当たらない。起きたときは porkadot の `skills/porkadot/references/troubleshooting.md` の「クラスター再起動後に MetalLB が起動しない」に従う（0.30.0 の `install bootstrap cleanup` は、master の apiserver が EndpointSlice で ready になるのを待ってから bootstrap を消す。porkadot#24）。
 
+### 8.9 apiserver が入れ替わる間の leader election の controller の再起動
+
+段 C の control-plane の再起動では、ほかのノードの leader election を使う controller が 1 回ずつ再起動した（段 C の手順書 §5.3、`results/stage-c/192.168.1.113.md`、`192.168.1.112.md`、`192.168.1.111.md`）。
+
+- .113: `longhorn-system` の `csi-attacher`、`csi-resizer`
+- .112: `gated-system/gated`、`longhorn-system` の `csi-snapshotter`
+- .111: `gated-system/gated`
+
+Pod から `kubernetes` Service（10.254.0.1:443）への要求の一部が止まりかけた apiserver に振り分けられ、リーダーの Pod が lease の更新に失敗して `leader election lost` で止まる（kubelet がすぐ再起動する）。どの Pod がリーダーかで落ちるものが変わる。**gated のリーダーが落ちると、gated の LoadBalancer（192.168.1.200）が 1 回ほど途切れる**（段 C の .112、.111 で 1 回ずつ）。同じ原因で VIP も数回失敗しうる。
+
+段 1 はノードを再起動しないが、次の 2 つで apiserver が入れ替わるので、同じことが起こりうる。
+
+- `install kubernetes`（§3）: apiserver の DaemonSet が 1 台ずつ入れ替わる。消される Pod はすぐ Endpoints から外れるので、再起動よりは起こりにくい見込み（dev では途切れなかった）
+- control-plane の `install kubelet`（§4）: etcd の Pod が作り直され、kubelet が再起動する。apiserver は再起動しない見込みだが、etcd のメンバーが入れ替わる間に要求が遅れることはありうる
+
+**ユーザーの判断で許容する。** ただし、各段階の後に次のコマンドで再起動したものを拾い、Running に戻ったことと、再起動が続いていないことを確かめて記録する（§3.3 の 12、§4.3 の 12）。同じ controller が 2 回以上再起動している、Running に戻らない、のどちらかなら止める。
+
+```sh
+kubectl --context fraction get pods -A -o json | jq -r '.items[] | .metadata.namespace as $ns | .metadata.name as $n | .spec.nodeName as $node
+  | .status.containerStatuses[]? | select(.lastState.terminated.finishedAt > "<操作を始めた時刻（UTC、例 2026-10-19T01:00:00Z）>")
+  | [$ns+"/"+$n, $node, .name, .restartCount, .lastState.terminated.exitCode, .lastState.terminated.finishedAt] | @tsv'
+```
+
+- §2.3 の監視の FAIL と時刻を突き合わせ、`results/stage-1/` の記録で「ノードの作業によるもの」と「leader election によるもの」を分けて書く
+- この途切れを無くす方法（段 C の手順書 §5.3 の候補）は、段 1 では使わない
+
 ## 9. 記録
 
-`results/stage-1/` に、ベースライン（`baseline.md`）、`install kubernetes`（`control-plane.md`）、各台（`<ノード>.md`。control-plane は `192.168.1.11N.md`）、全体のまとめ（`summary.md`）を残す。
-段 C の `results/stage-c/` と同じく、時刻（UTC）、読み取りの結果、実行したコマンドと出力の要点、手順書との差を書く。
+`results/stage-1/` に、ベースライン（`baseline.md`）、`install kubernetes`（`control-plane.md`）、各台（`<ノード>.md`。control-plane は `192.168.1.11N.md`）、全体のまとめ（`summary.md`）を残す。各台の雛形は `results/stage-1/template.md`。
+段 C の `results/stage-c/` と同じく、時刻（UTC。control-plane のホストの JST の時刻は直して書く）、読み取りの結果、実行したコマンドと出力の要点、監視の FAIL、leader election で再起動したもの、手順書との差を書く。監視のログ（`./stage-1-probe.log`）はタスクディレクトリの `notes/stage-1/` に置き、要点を記録に写す。
 手順書と実際の作業の差は、作業の後にこの手順書に反映する（同じ PR か、記録の PR で）。
