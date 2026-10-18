@@ -222,6 +222,9 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
+**この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+
 読み直し方:
 
 ```sh
@@ -364,8 +367,8 @@ apt-cache policy containerd.io
    # 版を指定するとき: ... containerd.io=2.3.6-1~ubuntu.24.04~noble
    ```
 
-   - `containerd.io` は `disabled_plugins = ["cri"]` の `/etc/containerd/config.toml` を conffile として持つ。`--force-confold` で手元の version 3 の config を残す。出力に `Configuration file '/etc/containerd/config.toml' ... ==> Using current old file as you requested.` が出ること
-   - worker では `rc` の `containerd.io` 1.6.8 の上に 2.3 を入れることになる。dpkg は 1.6.8 の頃の conffile の記録と比べて「手元で変えたファイル」と見なし、`--force-confold` で手元の config を残す（dev で確かめた）。入れた後に §3.6 の md5 の比較で、config が変わっていないことを必ず見る
+   - `containerd.io` は `disabled_plugins = ["cri"]` の `/etc/containerd/config.toml` を conffile として持つ。`--force-confold` で手元の version 3 の config を残す。control-plane（`containerd.io` の記録が無い）では、出力に `Configuration file '/etc/containerd/config.toml' ... ==> Using current old file as you requested.` が出る見込み
+   - worker では `rc` の `containerd.io` 1.6.8 の上に 2.3 を入れることになる。dpkg は 1.6.8 の頃の conffile の記録と比べて「手元で変えたファイル」と見なし、手元の config を残す（dev で確かめた）。**worker では `Using current old file` は出ない**（本番の chirico）。2.3.6 の deb の conffile の md5（`1d862b12f2cb082816175b28ee501789`）が 1.6.8 で登録された md5 と同じで、パッケージ側が変わっていないので、dpkg は何も聞かずに手元のファイルを残す。どちらでも、入れた後に §3.6 の md5 の比較で、config が変わっていないことを必ず見る（メッセージの有無ではなく md5 で判断する）
    - dpkg が containerd を再起動し、続けて needrestart がもう一度 `systemctl restart containerd.service` を流す。どちらでも動いているコンテナは止まらない（needrestart は `No containers need to be restarted.` と出す）。dev では、ここでそのノードの Pod は 1 つも再起動しなかった
    - 入れた時刻を記録する
 
@@ -475,7 +478,7 @@ sudo systemctl reboot
 | 5 | ストリーミング | 対象のノードの Pod に `kubectl --context fraction logs` | ログが読める |
 | 6 | iptables | ノードで `sudo iptables -S FORWARD \| head -3`、`sudo ip6tables -S FORWARD \| head -3` | `CNIDARIA-FWD` へのジャンプが先頭（oeilvert は §4.3） |
 | 7 | ディスク、ZFS | `lsblk`、`df`。braque と oeilvert は `sudo zpool status`、`findmnt /export`（braque） | Longhorn のディスクがマウントされている。pool が ONLINE。**braque は `tank1` が取り込まれ、`/export` が `tank1/export` であることを真っ先に見る**（OS 更新の手順書 §3.4 の 10） |
-| 8 | iSCSI | `systemctl is-active iscsid multipathd` | active |
+| 8 | iSCSI | `systemctl is-active iscsid.socket multipathd` | active。`iscsid.service` は socket から必要なときに起動するので、再起動の直後は inactive でよい（本番の chirico） |
 | 9 | DNS | `resolvectl status porka-dummy01` | 10.254.0.10 がある |
 | 10 | 失敗している unit | `systemctl --failed` | ベースラインから増えていない |
 | 11 | apt | `apt-cache policy containerd.io`、`sudo apt-get -s full-upgrade \| grep -E 'containerd\|runc\|upgraded'` | Candidate が 2.3 系で、2.3 系の行の優先度が 1001（`head` で切らない。§3.4）。`full-upgrade` の模擬で `containerd.io` が 2.4 系に上がらない（dev では `0 upgraded`。当たっていない Ubuntu の更新があれば、それは出てよい） |
@@ -490,7 +493,7 @@ OS 更新の手順書 §3.8 と同じ。
 1. ✋ `kubectl-admin uncordon <ノード>`（§3.10 の 2 と 3 が通ってから）。
 2. ✋ §3.8 の 3 で止めたものを戻す。chirico・duchamp は Prometheus リソースの `spec.replicas` を 2 に、oeilvert は `minio/minio` を 4 に。Pod が Running になり、ボリュームが healthy でアタッチされたことを確かめる。
 3. Longhorn の node（`kubectl --context fraction -n longhorn-system get nodes.longhorn.io <ノード>`）が Ready で schedulable に戻ったことを確かめてから、✋ Longhorn の設定を §3.8 の 2 で記録した値に戻す（2026-10-18 は `5`、`least-effort`、`block-if-contains-last-replica`）。読み直して APPLIED が true であること。drain から戻すまでの時間を記録する（100 分を過ぎると、止まった replica を使わずに作り直すことがある）。
-4. Longhorn: 対象のノードの replica が running に戻り、再同期が終わるまで待つ。degraded のボリュームがベースラインから増えていないこと。
+4. Longhorn: 対象のノードの replica が running に戻り、再同期が終わるまで待つ。degraded のボリュームがベースラインから増えていないこと。本番の chirico では、設定を戻してから全部 healthy になるまで 16 分かかった。data locality で replica の置き場所が変わることがある（§2.6）ので、終わった後の replica の置き場所を記録し、同じボリュームの replica が同じノードに 2 つ載っていないことを見る（`kubectl --context fraction -n longhorn-system get replicas.longhorn.io -o json | jq -r '.items[]|.spec.volumeName+" "+.spec.nodeID' | sort | uniq -d` が空）。
 5. Running / Completed 以外の Pod が、ベースラインから増えていないこと。
 6. ✋ `netcheck.sh` と `check-apps.sh` を流す。ベースラインと同じであること。
 7. `infra-admin` のトークンを破棄する（`unset ADMIN_TOKEN`）。
@@ -786,6 +789,7 @@ dev で出たもの。どれも動作に影響しなかった。
 - `level=error msg="failed to unmarshal sandbox spec for pod <id>" error="type with url : not found"`。**想定内のログ。** containerd 2.3.6 が、2.2.1 が作った sandbox を読むときに出る。dev の .122 で突き合わせたところ、出たのは 2.2.1 の頃に作られ、今は `SANDBOX_NOTREADY` の sandbox だけで、2.3.6 が作った `SANDBOX_READY` の sandbox には出ていない。動いている Pod にも影響しない。kubelet が古い sandbox を片付けるまで、containerd を起動するたびに出る
 - `level=warning msg="Configuration migrated from version 3, use 'containerd config migrate' to avoid migration"`。version 3 の config を使う間、起動のたびに出る。config を version 4 に作り直すのは段 8 の後（計画 §10）
 - `level=warning msg="failed check for fsverity support"`。ファイルシステムが fsverity に対応していないだけ
+- ノードの再起動の直後（kubelet が上がった直後の 1 秒ほど）に、`level=error msg="ContainerStatus for \"<id>\" failed" error="rpc error: code = NotFound ..."` と `RemoveContainer for "<id>" failed ... container is already in removing state` が数行ずつ出る。kubelet が再起動の前に消えたコンテナを問い合わせたもの。本番の chirico では 2.3.6 で 10 行と 2 行、2.2.1 で起動した前回にも 9 行と 1 行あった。2.3 で新しく出たものではない
 
 ### 8.2 再起動の直後の DNS の失敗
 
