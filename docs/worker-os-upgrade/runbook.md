@@ -84,7 +84,7 @@ dns addon の修正（k8s-manifests-fraction#10、`master` の aa1b8b6）で、`
 | ノード | 状態 |
 |---|---|
 | oeilvert | **当たっている**。#10 のマージ後に unit を置き換えた（元の unit は `/root/cluster-dns.service.bak-20261017`） |
-| braque、chirico、duchamp、pablo | まだ。OS 更新の各ノードの手順の中で当てる（§3.4 の 8） |
+| braque、chirico、duchamp、pablo | OS 更新の各ノードの手順の中で当てた（§3.4 の 8。2026-10-18 に pablo で 5 台すべてに当たった） |
 
 この手順は、porkadot を `master` の aa1b8b6 以降の asset で動かす（`git log` で確かめる）。
 修正が入った asset なら、`setup-node` や `install kubelet` を流しても `cluster-dns.service` は修正済みの版で書き直されるので、問題にならない。
@@ -317,7 +317,8 @@ dev の A の順での版の動き: 22.04 で `containerd` 2.2.1-0ubuntu1~22.04.
   `homegallery/api` は Deployment の `nodeSelector` が `kubernetes.io/hostname: oeilvert` なので、drain から uncordon まで Pending になる（ユーザーの判断で、止まってよい。`results/oeilvert.md` §2）
 - **braque**: drain で動く Pod は無い（DaemonSet だけ）。NFS（nfsd の Pod）はこの段階では止まらない。
   ZFS の pool を起動時に取り込む unit が enable されていること（`systemctl is-enabled zfs-import-cache zfs-import-scan`）。braque では `zfs-import-cache` が disabled で、`zfs-import-scan` は `/etc/zfs/zpool.cache` があるので飛ばされ、22.04 の再起動で `tank1` が取り込まれなかった（§3.4 の 10。2026-10-17 に enable した。`results/braque.md` §3.4）。oeilvert は `zfs-import-cache` が enabled で、pablo には ZFS が無い
-- **pablo**: share-manager（homegallery の RWX）と fs の h2、`docker/registry` が他のノードで Running に戻ったことを確かめる。oeilvert のホストの `shared/h` が読めること
+- **pablo**: share-manager（homegallery の RWX）と fs の h2、`docker/registry` が他のノードで Running に戻ったことを確かめる。oeilvert のホストの `shared/h` が読めること。
+  pablo の drain は 30 秒ほどで終わり、退いた Pod はすべて oeilvert に移った（2026-10-18。`results/pablo.md` §2）。uncordon しても戻らない
 
 ### 3.4 22.04 のまま containerd を置き換える ✋
 
@@ -382,7 +383,7 @@ dev の worker04 でこの節の 1〜9 を通してある（dev の検証結果�
 9. ✋ ノードを再起動する（`sudo reboot`）。22.04 の更新の反映と、containerd 2.2.1 で起動から上がることの確認を兼ねる。
    - braque・chirico・duchamp は 2026-01 以来の再起動である。起動しない場合に備えて、コンソールを用意しておく。
    - 止めてから kernel が起動するまでに時間がかかる。chirico では約 5 分、duchamp では約 17 分、oeilvert（9 日前に再起動していた）では約 2 分かかった（どれも journal に残らない区間）。起動そのものは 30 秒ほどである。20 分ほどは上がってこなくても慌てない。
-     braque では止めてから約 30 秒で kernel が起動したが、`systemd-networkd-wait-online.service` が 2 分待って失敗する（更新前から）ので、起動に 2 分 40 秒〜3 分かかった
+     braque では止めてから約 30 秒で kernel が起動したが、`systemd-networkd-wait-online.service` が 2 分待って失敗する（更新前から）ので、起動に 2 分 40 秒〜3 分かかった。pablo（14 日前に再起動していた）では約 5 分だった
    - **braque を再起動している間は、LAN から Service の IP（10.254.0.0/16）に届かず、LAN で `fraction.cluster` の名前を引けない。** 家のルーター（jumelle）に 10.254.0.0/16 への静的ルートが via 192.168.1.131（braque）で入っており、LAN の dnsmasq は `fraction.cluster` を 10.254.0.10 に転送しているため（§2.1.1）。再起動の前にユーザーに伝える
 10. 再起動の後、6 と 7 の確認をもう一度行う。加えて §3.7 の 8〜13（ノードごとの確認）を行う。
     - **braque**: `zpool status` と `findmnt /export` で、`tank1` が取り込まれて `/export` が `tank1/export` であることを、真っ先に確かめる。
@@ -541,7 +542,8 @@ dev（worker04）では、`do-release-upgrade` は非対話で約 11 分かか�
    - 戻した後に値を読み直して確かめる。
    - 戻すと、対象のノードの止まっていた replica の再同期が始まる。
    - drain で replica が止まってから 100 分（`replica-replenishment-wait-interval`）を過ぎて戻すと、止まった replica を使わずに新しい replica を作ることがある（§2.5 の注意）。replica の `spec.failedAt`（drain の時刻）を見て、戻す時刻を作業記録に書く。chirico では drain から 98 分、duchamp では 52 分、oeilvert では 49 分で戻した
-   - Prometheus を 2 に戻すと、prometheus-0 と prometheus-1 が更新前と逆のノードで起動することがある（duchamp ではそうなった）。data locality（`best-effort`）で、replica 1 のボリュームの replica が Pod のあるノードへ丸ごとコピーされる。データは失わず、ボリュームは healthy のままである。drain で別のノードへ移った 2 replica のボリューム（duchamp では `open-webui-pipelines`、oeilvert では natsumi、hedgedoc の db、fraction-agents の deep-researcher と gmail-agent の 4 つ）も、同じ理由で replica が 1 つ移る
+   - Prometheus を 2 に戻すと、prometheus-0 と prometheus-1 が更新前と逆のノードで起動することがある（duchamp ではそうなった）。data locality（`best-effort`）で、replica 1 のボリュームの replica が Pod のあるノードへ丸ごとコピーされる。データは失わず、ボリュームは healthy のままである。drain で別のノードへ移った 2 replica のボリューム（duchamp では `open-webui-pipelines`、oeilvert では natsumi、hedgedoc の db、fraction-agents の deep-researcher と gmail-agent の 4 つ、pablo では `fs/h2`）も、同じ理由で replica が 1 つ移る。
+     pablo では `fs/h2`（300G）の replica が oeilvert へ約 30 分かけて丸ごとコピーされ、pablo の replica は消えた。pablo に replica が 1 つも無くなった（`results/pablo.md` §6）
 4. Longhorn: 対象のノードの replica が running に戻り、degraded のボリュームがベースラインから増えていないこと。**再同期（再構築）が終わるまで待つ**（§3.9 の条件）。
    - 再構築が始まらない、または対象のノードの replica ではなくほかのノードに新しい replica が作られた場合は、作業記録に書く（§2.5 の注意の 100 分を過ぎた場合など）。
    - faulted になったボリュームは自動では直らない。使っている Pod を消してアタッチし直すと auto-salvage が走る（Wiki `entities/oeilvert`）。Pod を消すのは ✋
@@ -658,7 +660,7 @@ chirico で `setup-containerd` が `Net::SSH::HostKeyMismatch: fingerprint SHA25
 
 - 原因は sshkit 1.25.0 の `KnownHostsKeys#keys_for`。名前をハッシュした行（`|1|...`）は、名前が一致した**最初の 1 行の鍵だけ**を返す。作業端末の `~/.ssh/known_hosts` では、1 つのホストの ED25519、RSA、ECDSA が別々のハッシュの行にある。
   ED25519 は ed25519 の gem が無いので読み飛ばされ、次の RSA の鍵だけが返る。サーバーとは ECDSA で鍵交換するので、「一致しない」になる。`ssh` と net-ssh 単体（`Net::SSH::KnownHosts`）は全部の行を読むので通る
-- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が ED25519 の 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返り、対処なしで通った（`results/braque.md` §1.6）。chirico、duchamp、oeilvert は下の対処をした（duchamp と oeilvert は porkadot を流す前にした。`results/duchamp.md` §1.5、`results/oeilvert.md` §1.5）
+- 2026-10-17 の時点で当たるノード: duchamp（192.168.1.135。RSA だけが返る）、oeilvert（.82）と pablo（.134。ハッシュの行が ED25519 の 1 つだけで、鍵が 1 つも返らない）。braque（.131）は ECDSA が返り、対処なしで通った（`results/braque.md` §1.6）。chirico、duchamp、oeilvert、pablo は下の対処をした（duchamp、oeilvert、pablo は porkadot を流す前にした。`results/duchamp.md` §1.5、`results/oeilvert.md` §1.5、`results/pablo.md` §1.5）
 - 対処: そのノードの ECDSA の鍵を、名前をハッシュしない行で `~/.ssh/known_hosts` に足す。sshkit はハッシュしない行を先に見る。
   1. 鍵はノードの `/etc/ssh/ssh_host_ecdsa_key.pub` から取り、`<IP> ecdsa-sha2-nistp256 <鍵>` の形にする
   2. `ssh-keygen -lf` の fingerprint が、`ssh-keygen -F <IP> -l` の ECDSA の fingerprint と同じであることを確かめる。
