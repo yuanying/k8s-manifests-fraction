@@ -18,9 +18,8 @@
 dev で確かめていないものは次のとおり。**ここを本番で特に注意して見る。**
 
 - **arm64**。dev の段 C は amd64 の VM 7 台で通した。arm64 の `containerd.io`（Raspberry Pi 5 の control-plane）を入れるのは、本番の 192.168.1.113 が初めてになる。Docker の noble のリポジトリに arm64 の 2.3.6 があることは確かめてある（§1.6）
-- **oeilvert の `docker.io` から `docker-ce` への移行と devbox**（§4）。dev には Docker のノードが無い
+- **oeilvert の `docker.io` から `docker-ce` への移行と devbox**（§4）。dev では、192.168.22.124 を oeilvert に似せて（`docker.io`、イメージ、volume、restart policy のコンテナ、devbox 型の unit、IPv6 の daemon.json）§4.2 と §7.3 を通した。本番の oeilvert の大きな `/var/lib/docker`（約 232G）と、本物の devbox では通していない
 - Longhorn のボリュームの多いノード、replica 1 のボリューム、ZFS、NFS。これらは前タスクの OS 更新と同じ扱い（drain と Longhorn の設定の切り替え）にする
-- etcd の `move-leader` を、`ETCDCTL_ENDPOINTS` を外した形で流すこと（§5.2 の 4）。dev では最初の形で失敗し、直した形は流す場面が無かった
 
 ## 0. 役割と約束ごと
 
@@ -285,7 +284,8 @@ dev では 1 台が 3〜6 分で終わった。本番では、Longhorn のボリ
 - `kubectl --context fraction get node <ノード> -o wide`: Ready、`containerd://2.2.1`
 - ノードで `containerd --version`、`runc --version`、`head -1 /etc/containerd/config.toml`（`version = 3`）、`md5sum /etc/containerd/config.toml`
 - `sudo ls /root/k8u-stage-c/`: §2.7 の控え（config と deb）がある
-- `apt-cache policy containerd containerd.io runc`: `containerd` と `runc` が Ubuntu の版で入っていて、`containerd.io` は候補が無い（oeilvert は `rc` で残る 1.6.8 の記録だけ）
+- `apt-cache policy containerd containerd.io runc`: `containerd` と `runc` が Ubuntu の版で入っていて、`containerd.io` は候補が無い
+- `dpkg -l containerd.io docker-ce`: **worker の 5 台には、前タスクで外した Docker の `containerd.io` 1.6.8 が `rc`（removed, config-files）で残っている**（2026-10-18 の読み取り。oeilvert は `docker-ce` 20.10.18 も `rc`。control-plane には無い）。`rc` の `containerd.io` は `/etc/containerd/config.toml` を conffile として登録したままである。**`apt purge` も `apt autoremove --purge` もしない**（§8.7）
 - `ls /etc/apt/sources.list.d/ /etc/apt/preferences.d/ /etc/apt/keyrings/`: 2026-10-18 は次のとおり。
   braque、chirico、duchamp、pablo は `docker.list.disabled-2026101X`（jammy の頃のもの。使わない）と `keyrings/docker.gpg`（古い鍵。使わない）が残っている。oeilvert は `third-party.sources`（jammy、`Enabled: no`）がある。どれも触らない（§8.5）
 - `apt list --upgradable`: 当たっていない Ubuntu の更新があれば記録する。**この手順では Ubuntu の更新（`full-upgrade`）は当てない**。containerd の置き換えと混ぜないため
@@ -328,6 +328,7 @@ apt-cache policy containerd.io
 ```
 
 - `apt-cache policy containerd.io` の **Candidate が 2.3 系**（2026-10-18 は `2.3.6-1~ubuntu.24.04~noble`）で、2.4 系ではないこと。Version table の 2.3 系の行の優先度が 1001 であること。違えば止める
+  - **出力を `head` で切らない。** Pin-Priority の 1001 は Version table の各版の行に出るので、先頭の 3 行（Installed、Candidate、`Version table:`）だけでは見えない。全部を読むか、`apt-cache policy containerd.io | grep -B1 1001` で 2.3 系の版の行と 1001 の行を確かめる
 - 鍵とリポジトリのファイル名は dev と同じ `docker.asc` と `docker.sources` にする。古い `keyrings/docker.gpg` と `docker.list.disabled-*` は触らない
 - pin は `containerd.io` だけにかける。**oeilvert の `docker-ce` / `docker-ce-cli` は pin しない**（§4.4）
 - pin の優先度 1001 は、2.3 系より新しい版（2.4 系）があっても 2.3 系を選ばせる。2.3 系の中では一番新しいパッチが候補になる。§1.6 で決めた版と候補が違う（作業の途中で新しいパッチが出た）場合は、§3.5 で版を指定する
@@ -360,6 +361,7 @@ apt-cache policy containerd.io
    ```
 
    - `containerd.io` は `disabled_plugins = ["cri"]` の `/etc/containerd/config.toml` を conffile として持つ。`--force-confold` で手元の version 3 の config を残す。出力に `Configuration file '/etc/containerd/config.toml' ... ==> Using current old file as you requested.` が出ること
+   - worker では `rc` の `containerd.io` 1.6.8 の上に 2.3 を入れることになる。dpkg は 1.6.8 の頃の conffile の記録と比べて「手元で変えたファイル」と見なし、`--force-confold` で手元の config を残す（dev で確かめた）。入れた後に §3.6 の md5 の比較で、config が変わっていないことを必ず見る
    - dpkg が containerd を再起動し、続けて needrestart がもう一度 `systemctl restart containerd.service` を流す。どちらでも動いているコンテナは止まらない（needrestart は `No containers need to be restarted.` と出す）。dev では、ここでそのノードの Pod は 1 つも再起動しなかった
    - 入れた時刻を記録する
 
@@ -377,7 +379,7 @@ sudo journalctl -u containerd -b --since '-10min' --no-pager | grep -iE 'level=(
 sudo ctr deprecations list
 sudo /opt/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock info >/dev/null && echo crictl-info-ok
 sudo /opt/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock images -q | wc -l   # 入れる前と同じ（イメージが残っている）
-apt-cache policy containerd.io | head -3           # Installed と Candidate が同じ 2.3 系
+apt-cache policy containerd.io                     # Installed と Candidate が同じ 2.3 系。2.3 系の行の優先度が 1001（head で切らない。§3.4）
 ```
 
 - **`containerd config dump` が `version = 4` を示すのは正しい。** containerd 2.3 が version 3 の config を読み込むときに移した結果で、ディスクの `/etc/containerd/config.toml` は version 3 のまま（md5 も変わらない）。だから 2.2.1 に戻すときに config を触らずに済む（§7）
@@ -472,7 +474,7 @@ sudo systemctl reboot
 | 8 | iSCSI | `systemctl is-active iscsid multipathd` | active |
 | 9 | DNS | `resolvectl status porka-dummy01` | 10.254.0.10 がある |
 | 10 | 失敗している unit | `systemctl --failed` | ベースラインから増えていない |
-| 11 | apt | `apt-cache policy containerd.io`、`sudo apt-get -s full-upgrade \| grep -E 'containerd\|runc\|upgraded'` | Candidate が 2.3 系。`full-upgrade` の模擬で `containerd.io` が 2.4 系に上がらない（dev では `0 upgraded`。当たっていない Ubuntu の更新があれば、それは出てよい） |
+| 11 | apt | `apt-cache policy containerd.io`、`sudo apt-get -s full-upgrade \| grep -E 'containerd\|runc\|upgraded'` | Candidate が 2.3 系で、2.3 系の行の優先度が 1001（`head` で切らない。§3.4）。`full-upgrade` の模擬で `containerd.io` が 2.4 系に上がらない（dev では `0 upgraded`。当たっていない Ubuntu の更新があれば、それは出てよい） |
 | 12 | journal | `sudo journalctl -u containerd -b --no-pager \| grep -c 'unmarshal sandbox spec'` | 出ていてよい（§8.1）。数を記録する |
 
 ノードごとの追加の確認は OS 更新の手順書 §3.7 の「ノードごとの追加の確認」と同じ（braque の nfsd と `registry.fraction.jp`、pablo の fs の h2・`docker/registry`・share-manager）。oeilvert は §4.3。
@@ -522,10 +524,12 @@ Ubuntu の `docker.io` は `containerd (>= 1.2.6-0ubuntu1~)` に版つきで依�
 | apt のリポジトリ | `ubuntu.sources` と `third-party.sources`（Docker の jammy、`Enabled: no`） |
 | `/etc/docker/daemon.json` | `ipv6: true`、`fixed-cidr-v6: fde0:17ad:84c5:82::/64`。どのパッケージの conffile でもないので残る |
 | devbox | `devbox.service`（`Requires=docker.service`、`ExecStart=/home/yuanying/dotfiles/devbox/start-daemon`）。`docker run --rm -d --name devbox --privileged`、`/var/run/docker.sock` を渡し、3222・8080・9090・60000〜60010/udp を公開する。イメージは `registry.fraction.jp/yuanying/devbox-amd64` |
+| Docker のストレージ | `docker info` の Storage Driver が **overlay2**（graphdriver。containerd のイメージストアではない） |
+| restart policy | `devbox`（動いている）と、止まった 2 つのコンテナは、どれも restart policy が `no` |
 | ディスク | `/` の空きは 82G |
 | 自動再起動 | unattended-upgrades の自動再起動が 04:00（UTC）。作業の時間帯をずらす |
 
-作業の当日に控える（読み取り。作業端末に保存する）: `sudo docker info`、`sudo docker images`（タグの一覧）、`sudo docker images -a | wc -l`、`sudo docker volume ls`、`sudo docker ps -a`、`/etc/docker/daemon.json`、`dpkg -l | grep -iE 'docker|containerd|runc'`、`df -h /`。
+作業の当日に控える（読み取り。作業端末に保存する）: `sudo docker info`（特に Storage Driver と Docker Root Dir）、restart policy（`sudo docker ps -a --format '{{.Names}}' | xargs -r -n1 sudo docker inspect -f '{{.Name}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}}'`）、`sudo docker images`（タグの一覧）、`sudo docker images -a | wc -l`、`sudo docker volume ls`、`sudo docker ps -a`、`/etc/docker/daemon.json`、`dpkg -l | grep -iE 'docker|containerd|runc'`、`df -h /`。
 
 `docker.io` の deb は §2.7 で控えてある（`/root/k8u-stage-c/docker.io_29.1.3-0ubuntu3~24.04.2_amd64.deb`）。
 
@@ -550,6 +554,8 @@ Ubuntu の `docker.io` は `containerd (>= 1.2.6-0ubuntu1~)` に版つきで依�
    sudo systemctl stop docker docker.socket
    ```
 
+   restart policy のあるコンテナがあると、止めるのに時間がかかる（dev では 21 秒）。
+
    devbox は `--rm` なので、コンテナは消える。作業内容はホストの `/home/yuanying` にある。
 3. ✋ 入れ替える。
 
@@ -559,12 +565,14 @@ Ubuntu の `docker.io` は `containerd (>= 1.2.6-0ubuntu1~)` に版つきで依�
    ```
 
    - **purge しない**（remove のまま）。`/var/lib/docker` と `/etc/docker/` を残す
-   - `docker-ce` は入れた時点で `docker.service` を起動する
+   - `docker-ce` は入れた時点で `docker.service` を起動する。**restart policy（`always`、`unless-stopped` など）の付いたコンテナは、その時点で起動する**（dev で確かめた）。devbox（`--rm`、unit から起動）は 7 の `systemctl start` まで起動しない。2026-10-18 の本番の oeilvert には restart policy の付いたコンテナは無い。4.1 の控えで restart policy の付いたコンテナが増えていれば、入れ替えの途中で上がることを先に伝える
+   - **`apt purge` も `apt autoremove --purge` もしない**（§8.7）。`rc` の `containerd.io` 1.6.8 を purge すると `/etc/containerd/config.toml` が消える。`rc` の `docker-ce` 20.10.18 も、まとめて purge する片付けをしない
    - `ubuntu-fan`、`pigz`、`bridge-utils` は自動で入ったものなので、apt が `autoremove` を勧める。**`autoremove` は流さない**（片付けは段 C の後にユーザーと決める）
 4. §3.6 の確認を行う。
 5. ✋ `sudo systemctl restart kubelet`（§3.7。Pod の再起動回数が増えていないこと）。
 6. Docker を確かめる。
-   - `docker version` のサーバーが `docker-ce` の版、`docker info` の Storage Driver が overlay2、Docker Root Dir が `/var/lib/docker`、Cgroup Driver が systemd、containerd の版が 2.3.x
+   - `docker version` のサーバーが `docker-ce` の版、Docker Root Dir が `/var/lib/docker`、Cgroup Driver が systemd、containerd の版が 2.3.x
+   - **`docker info` の Storage Driver が 4.1 の控えと同じ（2026-10-18 は overlay2）**。Docker 29 は、新しく入れたときの既定が containerd のイメージストア（dev で新しく入れた Docker では overlayfs になった）なので、変わっていないことを必ず見る。変わっていると、`/var/lib/docker` の overlay2 のイメージが見えなくなる。変わっていたら devbox を起こさずに止め、ユーザーと決める（dev では `/etc/docker/daemon.json` に `"features": {"containerd-snapshotter": false}` を足して overlay2 にした。runbook から外れる操作）
    - `docker info` の Images の数と、`docker images` のタグの一覧が 4.1 の控えと同じ。`docker volume ls` に元のボリュームがある
    - `docker network inspect bridge` で IPv6 が有効で、`fixed-cidr-v6` の範囲がある（daemon.json が読まれている）
    - `sudo iptables -S FORWARD | head -5` と `sudo ip6tables -S FORWARD | head -5`。この時点では Docker が `DOCKER-USER` と `DOCKER-FORWARD` へのジャンプを先頭に入れ、`CNIDARIA-FWD` が 3 番目になることがある（前タスクの oeilvert と同じ）。Pod の通信は通る。再起動の後は `CNIDARIA-FWD` が先頭に戻る
@@ -637,7 +645,7 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
    etcdctl endpoint status --cluster -w table   # リーダーが移ったこと
    ```
 
-   - `move-leader` はリーダーに向けて流す。`etcd.env` の `ETCDCTL_ENDPOINTS` を読み込んだまま `--endpoints` を付けると止まるので（§1.5）、`unset ETCDCTL_ENDPOINTS` してから流す
+   - `move-leader` はリーダーに向けて流す。`etcd.env` の `ETCDCTL_ENDPOINTS` を読み込んだまま `--endpoints` を付けると止まるので（§1.5）、`unset ETCDCTL_ENDPOINTS` してから流す。この形は dev の .113・.111・.112 で通した
    - 移す先は、次に作業しないノードにする（.113 の作業なら .111）
    - 移せなかった場合も、再起動でリーダーは残りのメンバーへ移る（dev の .112 では `move-leader` が止まったまま進め、再起動でリーダーが .113 に移った。raft term が 1 つ進んだ）。ただし移るまでの選挙の分だけ書き込みが止まるので、移してから再起動するのを基本にする
 5. ✋ §3.4（リポジトリ、鍵、pin）。arm64 なので、`docker.sources` の `Architectures` が `arm64`、`apt-cache policy containerd.io` の候補が `2.3.x` であること。
@@ -674,7 +682,7 @@ apiserver が止まりきってから外れるまで待つ方法は、段 C の�
 
 - 8 台すべてで `containerd --version` が 2.3.x（全台同じ版）、`runc --version` が 1.5.x、`kubectl --context fraction get nodes -o wide` の CONTAINER-RUNTIME が `containerd://2.3.x`、VERSION が v1.29.8
 - `/etc/containerd/config.toml` が全台 version 3 で、`/root/k8u-stage-c/config.toml.before` と同じ。`containerd config dump` に `SystemdCgroup = true`
-- 全台で `apt-cache policy containerd.io` の Candidate が 2.3 系、`apt-get -s full-upgrade` で `containerd.io` が上がらない（pin が効いている）
+- 全台で `apt-cache policy containerd.io` の Candidate が 2.3 系で優先度が 1001、`apt-get -s full-upgrade` で `containerd.io` が上がらない（pin が効いている）
 - etcd 3/3 healthy、リーダーが居る、raft index がそろっている。VIP の `/livez` が `ok`、`/version` が v1.29.8
 - apiserver 3/3。controller-manager と scheduler が 2/2。置き場所を記録する（同じ master に同じ component が 2 つ載っていれば記録する。直すかは別途）
 - Running / Completed 以外の Pod が無い（ベースラインのものを除く）
@@ -705,18 +713,26 @@ apiserver が止まりきってから外れるまで待つ方法は、段 C の�
 dev の 192.168.22.122 で通した。**drain は要らない**（dev では drain せずに戻し、Pod の再起動は 0、40 秒後に Ready）。
 
 ```sh
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confold \
-  /root/k8u-stage-c/containerd_2.2.1-0ubuntu1~24.04.3_*.deb /root/k8u-stage-c/runc_1.3.4-0ubuntu1~24.04.1_*.deb
-sudo rm -f /etc/apt/preferences.d/containerd-io /etc/apt/sources.list.d/docker.sources
-sudo apt-get update
+sudo bash -c '
+set -euo pipefail
+d=/root/k8u-stage-c; a=$(dpkg --print-architecture)
+DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confold \
+  "$d/containerd_2.2.1-0ubuntu1~24.04.3_$a.deb" "$d/runc_1.3.4-0ubuntu1~24.04.1_$a.deb"
+rm -f /etc/apt/preferences.d/containerd-io /etc/apt/sources.list.d/docker.sources
+apt-get update
+'
 containerd --version; runc --version | head -1; head -1 /etc/containerd/config.toml
+sudo md5sum /etc/containerd/config.toml /root/k8u-stage-c/config.toml.before
 sudo systemctl restart kubelet
 ```
+
+- **deb のパスは `sudo bash -c` の中で組み立てる。** `/root/k8u-stage-c` は一般ユーザーから読めないので、`sudo apt-get install /root/k8u-stage-c/*.deb` のように書くと glob が sudo の前に展開されず、apt が `Unsupported file` で止まる（dev で起きた）。続けて `rm` を流すと、2.3 のまま pin とリポジトリだけが消える。`set -e` で、apt が失敗したら `rm` に進まないようにしてある
+- apt が失敗したら、pin とリポジトリは残っている。原因を直してからやり直す
 
 - `containerd.io` が外れ（remove）、Ubuntu の `containerd` 2.2.1 と `runc` 1.3.4 が入る。apt が containerd を再起動する
 - **config は触らない。** version 3 のままなので 2.2.1 が読める。`md5sum` が `/root/k8u-stage-c/config.toml.before` と同じであることを確かめる。違っていたら、控えを戻してから containerd を再起動する
 - dev では、2.2.1 に戻っている間の containerd のログに error も warning も無かった（2.3.6 が作った sandbox も読めた）
-- **`containerd.io` を purge しない。** `containerd.io` は `/etc/containerd/config.toml` を conffile として持つので、purge すると config が消える
+- **`containerd.io` を purge しない。** 外れた `containerd.io` は `rc` で残り、`/etc/containerd/config.toml` を conffile として持ち続ける。purge すると config が消える（§8.7）
 - 確認は §3.6〜§3.7 と同じ（版は 2.2.1 と 1.3.4、CONTAINER-RUNTIME は `containerd://2.2.1`）
 - 鍵（`/etc/apt/keyrings/docker.asc`）は残してよい
 - 再起動するかは、戻した理由による。古い shim を入れ替えたいなら §3.8 から drain して再起動する
@@ -732,18 +748,26 @@ sudo systemctl restart kubelet
 ```sh
 sudo systemctl stop devbox
 sudo systemctl stop docker docker.socket
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends -o Dpkg::Options::=--force-confold \
-  /root/k8u-stage-c/containerd_2.2.1-0ubuntu1~24.04.3_amd64.deb /root/k8u-stage-c/runc_1.3.4-0ubuntu1~24.04.1_amd64.deb \
-  /root/k8u-stage-c/docker.io_29.1.3-0ubuntu3~24.04.2_amd64.deb docker-ce- docker-ce-cli-
-sudo rm -f /etc/apt/preferences.d/containerd-io /etc/apt/sources.list.d/docker.sources
-sudo apt-get update
+sudo bash -c '
+set -euo pipefail
+d=/root/k8u-stage-c
+echo "docker.io docker.io/restart boolean true" | debconf-set-selections
+DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends -o Dpkg::Options::=--force-confold \
+  "$d/containerd_2.2.1-0ubuntu1~24.04.3_amd64.deb" "$d/runc_1.3.4-0ubuntu1~24.04.1_amd64.deb" \
+  "$d/docker.io_29.1.3-0ubuntu3~24.04.2_amd64.deb" docker-ce- docker-ce-cli-
+rm -f /etc/apt/preferences.d/containerd-io /etc/apt/sources.list.d/docker.sources
+apt-get update
+'
+sudo md5sum /etc/containerd/config.toml /root/k8u-stage-c/config.toml.before
 sudo systemctl restart kubelet
 sudo systemctl start docker devbox
 ```
 
-- 実行の前に `apt-get install -s` で、外れるのが `containerd.io`、`docker-ce`、`docker-ce-cli` だけであることを読む
-- `docker.io` の debconf の質問（アップグレード時に docker を自動で再起動するか）が出たら「はい」（OS 更新の手順書 §3.4.1 の 4）
-- この戻し方は dev で通していない。その場でユーザーと決める
+- 実行の前に、同じ `sudo bash -c` の中で `apt-get install -s` を流し、外れるのが `containerd.io`、`docker-ce`、`docker-ce-cli` だけであることを読む。deb のパスを `sudo bash -c` の中で組み立てる理由は §7.1
+- `docker.io` の debconf の質問（アップグレード時に docker を自動で再起動するか）は、先に「はい」を入れておく（OS 更新の手順書 §3.4.1 の 4）
+- `docker-ce` と `containerd.io` は `rc` で残る。**purge しない**（§8.7）
+- 戻した後、`docker info` の Storage Driver が 4.1 の控えと同じで、イメージが見えることを確かめる
+- dev（192.168.22.124 を oeilvert に似せたもの）で、この形で戻せることを確かめた（イメージ、volume、restart policy のコンテナ、devbox 型の unit、IPv6 の daemon.json が残り、K8s の Pod の再起動は 0）
 
 ### 7.4 段 C 全体をやめる
 
@@ -783,6 +807,16 @@ apt はどれも読まない（拡張子が `.list` / `.sources` でない、ま
 
 - unattended-upgrades は Docker の origin を対象にしないので、`containerd.io` は自動では上がらない。手で `apt full-upgrade` を流すと、pin の範囲（2.3 系）の中で新しいパッチに上がり、containerd が再起動する。段 C の後のパッチの扱いは計画 §5.8
 - OS の更新（`do-release-upgrade`）は、Docker のリポジトリが有効だと拒否されることがある（OS 更新の手順書 §3.4 の 1）。OS の更新はこのタスクの範囲外
+
+### 8.7 purge と `autoremove --purge` をしない
+
+`/etc/containerd/config.toml` は、Docker の `containerd.io` の conffile として dpkg に登録されている。
+
+- worker の 5 台には、前タスクで外した `containerd.io` 1.6.8 が `rc`（removed, config-files）で残っている（2026-10-18 の読み取り。conffile の記録は `/etc/containerd/config.toml`）。oeilvert には `docker-ce` 20.10.18 も `rc` で残っている。control-plane には無い
+- 段 C で `containerd.io` 2.3 を入れると、同じ conffile の持ち主になる。§7 で戻すと、`containerd.io` はまた `rc` で残る
+- **`rc` か入っている `containerd.io` を purge すると、`/etc/containerd/config.toml` が消える**（dev で、ディレクトリの `/etc/containerd/` ごと消えた）。config が無いと、containerd は CRI の設定（`SystemdCgroup = true` など）なしで上がり、kubelet が動かなくなる
+- だから、段 C の間もその後も、`apt purge containerd.io`、`apt autoremove --purge`、`dpkg -P` をしない。`rc` の記録を片付けたくなったら、先に `/etc/containerd/config.toml` を控え、ユーザーと決める
+- 消してしまったら、`/root/k8u-stage-c/config.toml.before` を `/etc/containerd/config.toml` に戻し、containerd と kubelet を再起動する ✋
 
 ## 9. 記録
 
