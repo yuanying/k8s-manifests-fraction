@@ -136,3 +136,59 @@ porkadot を流す前に対処した。
 - unit は、このブランチの `assets/kubelet-default/addons/dns/install.sh` の quoted heredoc を `sed` で取り出して使った。oeilvert の今の unit と 1 文字も違わないことを `diff` で確かめた
 - 元の unit は `/root/cluster-dns.service.bak-20261018` に写した。`daemon-reload`、`reenable`、`restart` を流した。`reenable` はほかのノードと同じ `non-existent unit` の警告を出した（害はない）
 - `cluster-dns` は active。`resolvectl status porka-dummy01` は DNS Servers 10.254.0.10、DNS Domain `cluster.local default.svc.cluster.local svc.cluster.local`。cnidaria の経路（proto 200）は v4・v6 とも 7 本のまま
+
+### 3.4 22.04 の再起動（runbook §3.4 の 9・10）
+
+| 時刻（UTC） | 操作 | 結果 |
+|---|---|---|
+| 01:00:11 | 9: `systemctl reboot`（ユーザーが承認） | journal は 01:00:15 に止まった。kernel の起動は 01:05:02（`uptime -s`）。01:05:55 に SSH が上がり、01:06 に Ready |
+
+- 止めてから kernel が起動するまで約 5 分（chirico 約 5 分、duchamp 約 17 分、oeilvert 約 2 分、braque 約 30 秒）。起動は 47 秒（kernel 21.6s、userspace 25.2s）
+- 起動の後: kernel 5.15.0-198-generic、`containerd://2.2.1`、config は `version = 3` のまま。containerd の journal に migrate の警告や `Ignoring unknown key` は無い。`ctr deprecations list` は空。`registry.k8s.io/pause:3.10.1` は pull 済み
+- kubelet は containerd の socket ができる前に起動に失敗し、systemd がやり直して上がった（ほかの 4 台と同じ）
+- DaemonSet の Pod は 8 つとも Running（restart が 1〜3 回増えた）。Pending の CSR は無い
+- runbook §3.7 の 8〜13: `/var/lib/longhorn` はマウントされている。**iSCSI の古いセッションは消えた**（`No active sessions`）。multipathd と `iscsid.socket` は active。`sudo -n true` が通る。`cluster-dns` は active で `porka-dummy01` に 10.254.0.10 と検索ドメイン。`systemctl --failed` は空（事前の `fwupd-refresh` も消えた）。`ordering cycle` は 0。cnidaria の経路は v4・v6 とも 7 本。`/var/run/reboot-required` は無い
+
+## 4. `do-release-upgrade`（runbook §3.5）
+
+### 4.1 前提の確認（§3.5 の 1）
+
+- `apt list --upgradable` は `open-vm-tools`（phased update）だけ。`/var/run/reboot-required` は無い。`/` の空きは 141G。`sources.list.d` は `docker.list.disabled-20261018` だけ
+- `Prompt=lts`、`ubuntu-release-upgrader-core` は 1:22.04.21（full-upgrade で 22.04.10 から上がった）。`do-release-upgrade -c` は `New release '24.04.5 LTS' available`
+- 手元で変わっている conffile は chirico、duchamp、braque と同じ: dpkg の md5 が合わないのは `/etc/sudoers`、`/etc/multipath.conf`、`/etc/containerd/config.toml`（`containerd.io` の `rc` の残り）。ucf で合わないのは `/etc/ssh/sshd_config`
+
+### 4.2 実行（非対話）
+
+| 時刻（UTC） | 出来事 |
+|---|---|
+| 01:06:54 | `systemd-run --unit=release-upgrade --setenv=DEBIAN_FRONTEND=noninteractive --setenv=UCF_FORCE_CONFFOLD=1 do-release-upgrade -f DistUpgradeViewNonInteractive` |
+| 01:11:36 | パッケージの入れ替えが始まった（`history.log`） |
+| 01:12:51〜01:20:12 | **作業端末から新しい SSH の接続ができなかった**（port 22 が `Connection refused`）。20 秒ごとに見て、約 8 分 |
+| 01:18:29 | `/etc/sudoers` の conffile の質問に `no`（手元の版を残す）と答えた（`main.log`） |
+| 01:21:55〜01:22:11 | 不要になったパッケージの purge |
+| 01:22:15 | `confirmRestart() called`（main.log の最後）。unit は `Result=success`、`ExecMainStatus=0`。再起動はしていない |
+
+所要時間は約 15 分。
+
+### 4.3 再起動の前の確認（§3.5 の 3）
+
+conffile の扱い:
+
+| ファイル | 結果 |
+|---|---|
+| `/etc/sudoers` | 手元の版のまま（`%sudo ALL=(ALL:ALL) NOPASSWD:ALL`）。`sudo -n true` が通る。メンテナの版は `/etc/sudoers.dpkg-dist` に置かれた |
+| `/etc/ssh/sshd_config`（ucf） | 手元の版のまま（2022-09-16 の版、末尾に `PasswordAuthentication no`）。`sshd_config.ucf-dist` が新しい版で置かれた |
+| `/etc/multipath.conf` | 質問は出ず、addon の版のまま（multipath-tools 0.9.4-5ubuntu8.2） |
+| `/etc/nfs.conf`、`/etc/default/nfs-common`（ucf） | 手元の版のまま。`.ucf-dist` が新しく置かれた（oeilvert、braque と同じ） |
+| `/etc/containerd/config.toml` | §3.4 で作った version 3 のまま |
+
+削除されたもの（`/var/log/dist-upgrade/history.log`。Remove 48 個、Purge 60 個。braque と同じ数）:
+
+- `Remove:` は、24.04 で名前が変わったライブラリの古い名前（`libcurl4`、`libapt-pkg6.0`、`libelf1` など）と、`gpg-wks-server`、`python3-distutils`、`usrmerge`
+- `Purge:` は 5.15.0-194 の kernel 一式、python3.10、`perl-modules-5.34`、**`irqbalance`**、`isc-dhcp-client`、`isc-dhcp-common`、`binutils` 一式、`policykit-1`、`pkexec`、`ubuntu-advantage-tools` など（ほかの台と同じ）
+- **Remove と Purge のどちらにも入っていないもの**: `containerd`、`runc`、`open-iscsi`、`nfs-common`、`multipath-tools`、`sudo`、`openssh-server`、`ufw`。どれも 24.04 の版で入っている。`ufw` は消えなかった（`iptables-persistent` が無いため。braque と同じ）
+
+版（再起動の前）: `containerd` 2.2.1-0ubuntu1~24.04.3、`runc` 1.3.4-0ubuntu1~24.04.1、`nftables` 1.0.9-1ubuntu0.1、`multipath-tools` 0.9.4-5ubuntu8.2、`open-iscsi` 2.1.9-3ubuntu5.5、`nfs-common` 1:2.6.4-3ubuntu5.1、`openssh-server` 1:9.6p1-3ubuntu13.20、`ufw` 0.36.2-6。kernel は 5.15.0-198 と 6.8.0-147。
+
+apt の source は `ubuntu.sources`（noble）と、外した `docker.list.disabled-20261018`。`third-party.sources` はできなかった。
+再起動の前、cnidaria の経路は 7 本のままだった。
