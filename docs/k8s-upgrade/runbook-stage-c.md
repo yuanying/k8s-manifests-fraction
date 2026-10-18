@@ -228,7 +228,7 @@ braque が止まる間の影響（NFS、`registry.fraction.jp`、LAN から Serv
 replica の数（2026-10-18）: chirico 17、duchamp 10、oeilvert 18、pablo 0、braque 0（Longhorn のノードではない）。
 
 **この表は 1 台ごとに変わる。** Longhorn の `default-data-locality` が `best-effort`（ボリュームの多くが `best-effort`）なので、drain で退いた Pod や uncordon の後に戻った Pod が別のノードで動くと、§3.11 で設定を戻した後に Longhorn がそのノードにローカルの replica を作り、ほかの replica を 1 つ消す。replica 1 のボリュームの replica も Pod に付いて動く。
-本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。braque の後（09:27Z）は replica が 1 つも動かなかった（braque の drain では Pod が退かない。`results/stage-c/braque.md` §6）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
+本番の chirico の後（2026-10-18 07:02Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が chirico、prometheus-1 の replica が oeilvert に移り、duchamp の最後の replica は無くなった**。pablo にも 2 replica のボリュームの replica が 2 つ載った（`results/stage-c/chirico.md` §6.1）。duchamp の後（08:15Z）も replica 1 のボリュームの置き場所は変わらず（prometheus-0 が chirico、prometheus-1 と MinIO の 4 つが oeilvert）、pablo の replica は 3 つになった（`results/stage-c/duchamp.md` §6.2）。pablo の後（08:50Z）も replica 1 のボリュームの置き場所は変わらない。replica の数は chirico 15、duchamp 11、oeilvert 17、pablo 3（`results/stage-c/pablo.md` §6.1）。braque の後（09:27Z）は replica が 1 つも動かなかった（braque の drain では Pod が退かない。`results/stage-c/braque.md` §6）。oeilvert の後（10:27Z）は、Prometheus の 2 つの Pod が入れ替わって戻ったため、**prometheus-0 の replica が oeilvert、prometheus-1 の replica が chirico に移った**。MinIO の 4 つは oeilvert のまま。replica の数は変わらない（`results/stage-c/oeilvert.md` §6.1）。次のノードの drain の前に、下の読み直し方で「最後の replica を持つボリューム」と「止めるもの」を決め直す（表に無いノードに最後の replica があれば、そのノードでも `node-drain-policy` を変え、使う workload を止める）。
 
 読み直し方:
 
@@ -473,7 +473,8 @@ sudo systemctl reboot
 ```
 
 - 古い shim（2.2.1）を 2.3 のものに入れ替え、2.3 で起動から上がることを確かめる（§2.2）
-- **そのノードが MetalLB の layer2 で告知している LoadBalancer は、再起動の直後に約 10 秒途切れる**（ほかの speaker が引き取るまで）。本番の pablo は VIP 192.168.1.101 を告知していて、§2.4 の監視の VIP が 2 回失敗した（`results/stage-c/pablo.md` §4.1）。告知するノードは Service の Pod の置き場所と関係なく動くので、再起動の前に読んで記録する（読み取り）。戻ってきたときの告知の戻りでは失敗しなかった
+- **そのノードが MetalLB の layer2 で告知している LoadBalancer は、再起動の直後に約 10 秒途切れる**（ほかの speaker が引き取るまで）。本番の pablo は VIP 192.168.1.101 を告知していて、§2.4 の監視の VIP が 2 回失敗した（`results/stage-c/pablo.md` §4.1）。`externalTrafficPolicy: Cluster` の LoadBalancer（VIP の `porkadot-kubernetes`、`h2-sshd`、`natsumi-sshd*`、`minecraft/bds-v4`）の告知は Service の Pod の置き場所と関係なく動くので、再起動の前に読んで記録する（読み取り）。戻ってきたときの告知の戻りでは失敗しなかった
+- `externalTrafficPolicy: Local` の LoadBalancer（gated-v4・v6、minecraft の `bds`）の告知は、Service の Pod のあるノードに付いていく。drain でそのノードの Pod が退くと、その時点で告知もほかのノードに移るので、再起動では途切れない（本番の oeilvert の gated-v6 は drain の時点で chirico に移った。`results/stage-c/oeilvert.md` §4）
 
   ```sh
   kubectl --context fraction get events -A --field-selector reason=nodeAssigned -o json \
@@ -700,7 +701,8 @@ devbox が止まるのは 2 から 7 まで（dev の 1 台の入れ替えは 6 
 ### 5.3 再起動の間の VIP の途切れ
 
 dev では、control-plane の 1 台を再起動するたびに、VIP の `/livez` が **10〜35 秒の間に 2〜8 回** 失敗した（1 秒ごとの問い合わせ。192.168.22.113 は 3 回、.112（etcd のリーダー）は 8 回、.111 は 2 回）。containerd の入れ替え、kubelet の再起動、worker の作業の間は 1 回も失敗しなかった。
-ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
+ただし、**VIP を告知しているノード（worker でもよい）を再起動すると、告知がほかのノードに移るまで約 10 秒途切れる**。本番の pablo で 2 回失敗した（§3.9、`results/stage-c/pablo.md` §4.1）。
+control-plane が告知している `externalTrafficPolicy: Cluster` の LoadBalancer も同じく約 10 秒途切れる。2026-10-18 10:08Z（worker の 5 台を終えた後）は、.112 が `h2-sshd`（`::131`）と `natsumi-sshd-aki`（`::134`）、.111 が `natsumi-sshd`（`::132`）を告知していた（`results/stage-c/oeilvert.md` §8）。§2.4 の監視は v4 の VIP と gated-v4 しか見ないので、これらの途切れは監視に出ない。control-plane の作業の前に、§3.9 のやり方で読み直して記録する。下の apiserver の Endpoints の件とは別の原因で、control-plane が告知していれば両方が重なる。LoadBalancer（gated に当たるもの）も一度も失敗しなかった。
 
 原因: VIP は MetalLB の LoadBalancer の Service `kube-system/porkadot-kubernetes`（`externalTrafficPolicy: Cluster`、selector は kube-apiserver の Pod）である。
 ノードを再起動し始めてから、そのノードの apiserver の Pod が Endpoints から外れるまでの間、kube-proxy がそこにも振り分けるので、要求の一部が失敗する。
