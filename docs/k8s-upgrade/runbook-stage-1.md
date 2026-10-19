@@ -517,6 +517,7 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
    - Longhorn の `replica-auto-balance` が `disabled`（§2.6。途中で変わっていないこと）
    - そのノードが告知している LoadBalancer（§2.7）
    - ノードで `ls -l /opt/bin/{kubelet,kubectl,crictl}`
+   - そのノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod（ノードは問わない。§8.11）。あれば、承認を取って `install kubelet` の前に消す
 2. ✋ 流す。
 
    ```sh
@@ -745,7 +746,7 @@ kubelet は再起動の後、動いている Pod のボリュームにも `NodeP
 - 本番では、backup の CronJob や手動の Job（`natsumi-backup*`、`deep-researcher-backup` など）が、動いている Pod と同じ PVC を使う Completed の Pod を残す
 - **Longhorn は別のノードの Succeeded の Pod も数える**（oeilvert の `natsumi-0` で、chirico に残った Completed の Pod が map に入った）
 - 止めるには、その PVC を使う Completed の Pod を消す（chirico では、消した後の kubelet の次のやり直しで通った）。Pod の削除なので、`infra-admin` のトークンが要る
-- **段 2 以降では、kubelet を再起動する前に、対象のノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod を、ノードを問わずに洗い出して消す**（承認の上で。Job・CronJob・Running の Pod には触らない）。洗い出し方（読み取り）:
+- **段 2 以降では、kubelet を再起動する前に、対象のノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod（ノードは問わない）を洗い出して消す**（承認の上で。Job・CronJob・Running の Pod には触らない）。洗い出し方（読み取り）:
 
   ```sh
   kubectl --context fraction get pods -A -o json | jq -r --arg n <ノード> '
