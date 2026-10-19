@@ -190,7 +190,7 @@ curl -fsSL https://dl.k8s.io/release/stable-1.31.txt     # v1.31.14
 | 3 | drain | **Longhorn のノードの worker 4 台（pablo、duchamp、chirico、oeilvert）は cordon + drain してから `install kubelet` し、確認の後に uncordon する。braque と control-plane の 3 台は drain しない** | 2026-10-19 のユーザーの承認（TASK.md の現在地）、dev の記録 |
 | 4 | drain の基準 | 「短時間の途切れ」より「Longhorn のボリュームの安全（データ、degraded のまま戻らないこと）」を重く見る。短時間の障害は許容する | 2026-10-19 のユーザーの方針 |
 | 5 | drain のやり方 | 段 C の手順をそのまま使う（`concurrent-replica-rebuild-per-node-limit` を `0`、最後の replica のあるノードでは `node-drain-policy` を `allow-if-replica-is-stopped` にして、Prometheus と MinIO を止める）。§2.6 | 段 C の手順書 §2.6、§3.7〜§3.8、§3.11 |
-| 6 | ノードの再起動 | **drain した 4 台は uncordon の前に再起動する**（§8.12。当初は「しない」だったが、段 2 の本番で古い iSCSI のセッションに当たって替えた）。braque と control-plane は再起動しない | dev の記録、2026-10-19 のユーザーの承認 |
+| 6 | ノードの再起動 | **drain した 4 台は uncordon の前に再起動する**（§8.12。当初は「しない」だったが、段 2 の本番で古い iSCSI のセッションに当たって替えた）。braque と control-plane は再起動しない。段 3 以降は再起動しない（§8.12 の末尾） | dev の記録、2026-10-19 のユーザーの承認 |
 | 7 | コンテナの再起動 | 1.31 の kubelet で、そのノードの全コンテナが 1 回再起動することを前提にする（§8.4）。drain しないノード（braque、control-plane）の Pod も 1 回ずつ再起動する | dev の記録 |
 | 8 | Longhorn の `replica-auto-balance` | 普段から `disabled`。段 2 でも `disabled` であることを確かめる（段 1 の手順書 §2.6） | ユーザーの判断（2026-10-18） |
 | 9 | leader election を使う controller の 1 回の再起動と、gated の LoadBalancer の 1 回の途切れ | 許容する。記録して、Running に戻ったことを確かめる（§8.8） | 段 C、ユーザーの判断 |
@@ -545,7 +545,7 @@ kubectl --context fraction -n kubelet-serving-cert-approver logs deploy/kubelet-
    - `<ノード>` は `porkadot.yaml` の `nodes` のキー（`pablo`、`duchamp`、`chirico`、`oeilvert`）
    - 時刻（開始と終わり）と rc を記録する。段 1 の本番では 1 台 27〜47 秒だった
 8. kubelet の起動から 1 分ほど待ってから、§5.3 の確認。
-9. ✋ **uncordon の前に、ノードを再起動する**（§8.12。段 2 の本番で追加した。2026-10-19 のユーザーの承認）。段 C の手順書 §3.9・§3.10 と同じ（再起動の前に告知している `Cluster` の LoadBalancer を読む、duchamp は SSH が戻ったらすぐ `no_turbo` を `1` に、oeilvert は段 C の手順書 §4.3 も見る）。再起動の後、ノードで `sudo iscsiadm -m session` が `No active sessions.` であること
+9. ✋ **uncordon の前に、ノードを再起動する**（§8.12。段 2 の本番で追加した。2026-10-19 のユーザーの承認）。段 C の手順書 §3.9・§3.10 と同じ（再起動の前に告知している `Cluster` の LoadBalancer を読む、duchamp は SSH が戻ったらすぐ `no_turbo` を `1` に、oeilvert は段 C の手順書 §4.3 も見る）。再起動の後、ノードで `sudo iscsiadm -m session` が `No active sessions.` であること。**段 3 以降はこの再起動をしない**。代わりに、計画 §4.4 のとおり drain の後・`install kubelet` の前に古いセッションを logout する（§8.12 の末尾）
 10. §5.5 の uncordon と後始末。
 
 ### 5.3 drain した台の確認（uncordon の前）
@@ -803,6 +803,8 @@ drain で instance-manager の Pod が消えても、そのノードのホスト
 - **対策: drain した台は、uncordon の前にノードを再起動する**（§5.2 の 9）。再起動で古いセッションは消える（段 2 の chirico、duchamp、oeilvert で確かめた）
 - 当たったときの止め方（段 2 で行ったもの。ユーザーの承認が要る）: 古いセッションのあるノードを cordon し、アタッチできずにいる Pod を消して、ほかのノードでアタッチさせる。その後、そのノードを drain して再起動する
 - 再起動せずに古いセッションだけを消す方法は、dev で確かめてから検討する
+
+**段 2 の後に分かったこと（2026-10-19）**: 原因は drain ではなく、`install kubelet` が流す `systemctl restart iscsid.service` だった（Longhorn v1.11.2 のエンジンは iscsid の再起動の後に logout できなくなる。porkadot-dev の `docs/longhorn/iscsi-stale-sessions.md`）。段 3 以降は、この節の「uncordon の前に再起動」の代わりに、**計画 §4.4 のとおり drain の後・`install kubelet` の前に `iscsiadm -m session` を見て古いセッションを logout し、再起動はしない**。手順は段 3 の手順書に書く。
 
 ## 9. 記録
 
