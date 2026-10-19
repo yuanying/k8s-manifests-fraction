@@ -514,7 +514,7 @@ kubectl --context fraction version
 | 8 | iscsid | `tools/node-state.sh` の `iscsid` と `session` を 1 の控えと比べる | **MainPID と ActiveEnterTimestamp が同じ**。Longhorn のセッションは 0 のまま。PID が変わっていたら止める（§8.10） |
 | 9 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログは §8.1 のとおり |
 | 10 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'`、lease の holder | 2/2 ずつ Ready。restartCount は同じ。リーダーが移ったかを記録する |
-| 11 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.5）、`ContainerStatus ... NotFound`、`RemoveStaleState`、`Image garbage collection failed once`、etcd の mirror Pod の `already exists`・`couldn't parse as pod`（古い kubelet が書き換えの途中を読んだもの）のほかに、続くエラーが無い |
+| 11 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.5）、`ContainerStatus ... NotFound`、`RemoveStaleState`、`Image garbage collection failed once`、etcd の mirror Pod の `already exists`・`couldn't parse as pod`（古い kubelet が書き換えの途中を読んだもの）、`Error getting the current node from lister`、cadvisor の `RecentStats: unable to find data in memory cache`（本番の段 3 の .111 で 1 回）のほかに、続くエラーが無い |
 | 12 | §2.3 の監視 | — | 失敗があれば、§2.8 の告知ノードと 13 の再起動と突き合わせて記録する（§8.8。数回までは許容） |
 | 13 | leader election を使う controller | 段 2 の手順書 §8.8 のコマンド（時刻は 4.2 の 3 の開始） | 再起動したものが無い。あれば記録し、Running に戻り、再起動が続いていないこと |
 | 14 | 告知していた LoadBalancer | §2.8 の読み方と `check-apps.sh` | 応答する |
@@ -573,10 +573,10 @@ kubectl --context fraction version
 | 3 | iscsid | `tools/node-state.sh` の `iscsid` を §5.2 の 1 の控えと比べる | **MainPID と ActiveEnterTimestamp が同じ。** duchamp のように前に動いていなかった台は、`install kubelet` の時刻に起動していてよい（`systemctl start`。§8.10）。動いていた iscsid の PID が変わっていたら止める |
 | 4 | iSCSI のセッション | `tools/node-state.sh` の `session` を控えと比べる | 同じ sid・portal・target が、同じ数だけある（dev では、セッションの番号は変わらなかった） |
 | 5 | エンジン | `tools/node-state.sh` の `engine` を控えと比べる | 同じボリュームのエンジンが、同じ起動の時刻で動いている（エンジンのプロセスが止まっていない） |
-| 6 | Longhorn | 対象のノードにアタッチされたボリュームの state・robustness、instance-manager、Longhorn の node | アタッチされたボリュームが `attached`・`healthy` のまま（faulted・degraded・remount が無い）。instance-manager が `running` で名前と IP が同じ。Longhorn の node が Ready。ノードで `sudo journalctl -k --since '-10min' \| grep -iE 'I/O error\|blk_update_request\|EXT4-fs error'` が空 |
+| 6 | Longhorn | 対象のノードにアタッチされたボリュームの state・robustness、instance-manager、Longhorn の node | アタッチされたボリュームが `attached`・`healthy` のまま（faulted・degraded・remount が無い）。instance-manager が `running` で名前と IP が同じ。Longhorn の node が Ready。ノードで `sudo journalctl -k --since '-10min' \| grep -iE 'I/O error\|blk_update_request\|EXT4-fs error'` が空。kubelet の再起動の数秒の間の Longhorn の node のイベント `Node <ノード> is down: manager pod ... is not running`・`Waiting for disk ... to be ready / schedulable` は想定内（本番の段 3 の Longhorn のノード 4 台で出た。longhorn-manager は再起動していない） |
 | 7 | Pod の再起動 | `snap <ノード> > pods-<ノード>-after.tsv; diff pods-<ノード>-before.tsv pods-<ノード>-after.tsv` | **差分が無い**（名前・UID・restartCount が同じ）。1 つでもコンテナの再起動があれば、ここで止めて報告する（§2.1 の 3。特に instance-manager、longhorn-manager、longhorn-csi-plugin、engine-image） |
 | 8 | cnidaria | 対象のノードの cnidaria が 1/1 Ready。`verify-nodes.sh` | 全 PASS。ログは §8.1 |
-| 9 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity` などのほかに、続くエラーが無い。Longhorn のボリュームの `FailedMount`（`no Pending workload pods`）が続いていない（§8.12） |
+| 9 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity` など（§4.3 の 11）と info の `Failed to trigger a manual run probe="Readiness"`（数秒）のほかに、続くエラーが無い。Longhorn のボリュームの `FailedMount`（`no Pending workload pods`）が続いていない（§8.12） |
 | 10 | §2.3 の監視 | — | 失敗があれば、§2.8 の告知ノードと突き合わせて記録する |
 | 11 | 告知していた LoadBalancer | §2.8 の読み方と `check-apps.sh` | 応答する。告知が移ったかを記録する |
 | 12 | CSR | `kubectl --context fraction get csr` | 新しい CSR が無い。出ていれば Approved,Issued（§8.9） |
@@ -710,6 +710,7 @@ dev の記録の見つけたことの 2。`install kubernetes --node 192.168.1.1
 - dev の段 3 では、残った 2 つ（MetalLB の `L2Advertisement` と `ValidatingWebhookConfiguration`）が失敗した。どちらも中身は変わっていないものなので、失敗しても実害は無いが、流し直して rc 0 を得る
 - rollout の完了を待って同じコマンドを流し直すと rc 0 になり、DaemonSet の generation は変わらない（2 回目の rollout は無い）
 - 0.31 の rc（dev）と本番の段 2 では rc 0 だった。rollout がどのノードから始まるかと、apply の残りの時間の競争と見ている（確かめていない）
+- 本番の段 3（2026-10-19）も 1 回目で rc 0 だった。apiserver の rollout は .112 → .111 → .113 の順で、.111 の入れ替えは apply が終わった後だった（`results/stage-3/control-plane.md`）
 
 ### 8.4 1.32 の kubelet ではコンテナが再起動しない
 
@@ -792,6 +793,7 @@ dev の記録の見つけたことの 2。`install kubernetes --node 192.168.1.1
 
   出た PVC が Longhorn のもの（`kubectl --context fraction get pv <PV> -o jsonpath='{.spec.csi.driver}'` が `driver.longhorn.io`）かを確かめる。NFS の PV なら当たらない
 - dev の段 3 では、アタッチしたまま `install kubelet` した 2 台で当たらなかった（Completed の Pod が無かった）
+- **本番の段 3（2026-10-19 23:0xZ）では、JST 05:30・06:00 のバックアップの CronJob の Pod が Completed で残り、oeilvert で 2 つ（`natsumi`、`natsumi-aki`）、chirico で 2 つ（`natsumi-myao`、`fraction-agents/data-deep-researcher-0`）当たった。** ユーザーの承認を取って `install kubelet` の前に消した（`results/stage-3/oeilvert.md` §1.3）。早朝より後に作業するときは当たる前提で、ベースラインの時点で洗い出して承認を取っておく
 
 ### 8.13 dev の etcd のディスクの止まり
 
