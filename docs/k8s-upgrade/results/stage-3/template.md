@@ -68,6 +68,8 @@
 | 14 | 告知していた LoadBalancer | |
 | 15 | CSR（runbook §8.9） | |
 
+NetworkPolicy の確認（runbook §1.9。最初の worker の後だけ）: `nft`（up の前・後・down の後）、`run` の OK / not OK、名前空間が消えたこと:
+
 ノードごとの追加の確認（braque の nfsd・NFS・`registry.fraction.jp`、pablo の VIP、oeilvert の `homegallery/api` など）:
 
 ## 5. 監視の FAIL と、その原因

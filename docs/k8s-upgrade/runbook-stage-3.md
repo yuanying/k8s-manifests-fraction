@@ -74,7 +74,7 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 
 - MinIO・open-webui・hedgedoc の名前空間は無い。`minio/minio` の StatefulSet を止める手順、`hedgedoc/db-postgresql` の NetworkPolicy の確認は、段 3 には無い
 - Longhorn のボリュームは 17（attached healthy 16、detached 1 の `homegallery/cg-data`）。前の detached の `myao/myao` も無くなった。replica は 34
-- **NetworkPolicy は 1 つも無い**（§1.8、§6）
+- **NetworkPolicy は 1 つも無い**。確かめるときは一時的な名前空間に作る（§1.9）
 - PV は 31 で、すべて Bound（Released の PV は無い）
 
 ### 1.2 kubeconfig の運用
@@ -167,7 +167,7 @@ curl -fsSL https://dl.k8s.io/release/stable-1.32.txt     # v1.32.13
 ### 1.8 確認に使うスクリプト
 
 - cnidaria の手順書のスクリプト（`verify-nodes.sh`、`netcheck.sh`、`check-apps.sh`）: 段 C の手順書 §1.4 と同じ。`netcheck.sh` は一時的な DaemonSet を作るので ✋
-  - **`netcheck.sh` は NetworkPolicy を作らない。** 確かめるのは、Pod 間（v4 / v6、ノード間）、Service（v4 / v6、名前）、外への ping だけである（`netcheck.sh`・`netcheck.yaml` を読んだ）。本番に NetworkPolicy が 1 つも無いので、段 3 では NetworkPolicy の規則がノードの nftables に入ることは確かめられない。代わりに `verify-nodes.sh` の `table inet cnidaria` の確認と cnidaria のログを見る（§6）。cnidaria の NetworkPolicy の処理は、dev の記録で 1.32 の上で確かめてある（5432 は通り 9187 は止まる）
+  - **`netcheck.sh` は NetworkPolicy を作らない。** 確かめるのは、Pod 間（v4 / v6、ノード間）、Service（v4 / v6、名前）、外への ping だけである（`netcheck.sh`・`netcheck.yaml` を読んだ）。本番に NetworkPolicy が 1 つも無いので、NetworkPolicy は §1.9 の一時的な名前空間で確かめる
 - `tools/node-state.sh`（この PR で足した。読み取り）: 1 台の `/opt/bin` の向き先、CNI の版の印と 4 つのプラグインの `--version`、iscsid の PID と起動の時刻、iSCSI のセッション（sid、portal、target）、Longhorn のエンジンの起動の時刻（iscsid より前に起動したものには `older-than-iscsid`）、`initiatorname.iscsi` の md5 を出す
 
   ```sh
@@ -175,6 +175,43 @@ curl -fsSL https://dl.k8s.io/release/stable-1.32.txt     # v1.32.13
   ```
 
 - `tools/storage-versions.sh`（この PR で足した。読み取り）: etcd に古い版で保存されたオブジェクトを洗い出す（`storage-versions.md` §4）
+
+### 1.9 NetworkPolicy の確認（一時的な名前空間） ✋
+
+本番には NetworkPolicy が 1 つも無い（2026-10-19。hedgedoc が消えた）ので、段 1・段 2 の「`hedgedoc/db-postgresql` の規則がノードの nftables に入っている」の確認が使えない。代わりに、一時的な名前空間 `k8u-npcheck` に NetworkPolicy と Pod を作り、cnidaria が規則を入れて、許した通信が通り、許していない通信が止まり、消すと規則も消えることを確かめる。`netcheck.sh` の一時的な DaemonSet と同じ扱い（✋。作って消すまでを 1 回の操作として知らせる）。
+
+- マニフェスト `tools/npcheck.yaml`: 名前空間 `k8u-npcheck`、全ノードに 1 つずつの DaemonSet 3 つ（`npcheck-server`: busybox の httpd を 8080 と 9090 で、`npcheck-allowed`: `role: allowed` のクライアント、`npcheck-denied`: `role: denied` のクライアント。どれも全 taint を許す）、NetworkPolicy `allow-8080`（`app: npcheck-server` への Ingress を、`role: allowed` の Pod から TCP 8080 だけ許す）。イメージは `netcheck.yaml` と同じ `busybox:1.36`
+- スクリプト `tools/npcheck.sh`: `dry-run`（`kubectl apply --dry-run=client`。読み取り）、`up`・`down`（作る・消す。✋）、`run`（`kubectl exec` で確かめる）、`nft`（各ノードに SSH して `sudo nft list table inet cnidaria` の `k8u-npcheck/allow-8080` の行を数える。読み取り）。`up`・`run`・`down` は `ADMIN_TOKEN`（§1.2）が要る
+- `run` が見るもの（**ノードをまたぐ形**。各ノードのクライアントから、ノード名の順で次のノードのサーバーへ、v4 と v6 の両方）:
+
+  | 向き | 合格 |
+  |---|---|
+  | `allowed` のクライアント → サーバーの 8080 | 通る（PASS） |
+  | `allowed` のクライアント → サーバーの 9090 | 止まる（BLOCK。ポートが許されていない） |
+  | `denied` のクライアント → サーバーの 8080 | 止まる（BLOCK。相手が許されていない） |
+  | 各サーバー → 自分の 9090（127.0.0.1） | 通る（9090 が listen していて、BLOCK がポリシーによるものだと分かる） |
+
+  8 ノードで 8 + 8 × 6 = 56 の確かめ。止まるものは `wget -T 3` の時間切れを待つので、数分かかる
+
+流し方（✋。`ADMIN_TOKEN` を発行してから）:
+
+```sh
+export ADMIN_TOKEN
+T=docs/k8s-upgrade/tools/npcheck.sh
+$T nft     # 8 台とも 0（前に残っていない）
+$T up      # 3 つの DaemonSet が 8/8 Ready になるまで待つ（最大 3 分）
+$T nft     # 8 台とも 1 以上（cnidaria が規則を入れた。サーバーの Pod が載るノードに入る）
+$T run     # 最後の行が「OK 56, not OK 0」、rc 0
+$T down    # 名前空間を消す
+$T nft     # 8 台とも 0（規則が消えた）
+kubectl --context fraction get ns k8u-npcheck   # NotFound
+```
+
+- 合格: `up` の後の `nft` が 8 台とも 1 以上、`run` が `not OK 0`、`down` の後の `nft` が 8 台とも 0、名前空間が消えた
+- `up` の直後は cnidaria が規則を入れるまで少しかかることがある。`nft` が 0 のノードがあれば、数秒おいて読み直してから `run` を流す
+- 合格しなければ、`down` で消してから止めて報告する（`run` の全出力は `/tmp/npcheck-<時刻>.txt`）。消せないときも止める
+- **2026-10-19 は `dry-run` だけを `fraction-auditor` で流した**（5 つとも `created (dry run)`）。`nft` も読み取りで流し、8 台とも 0 だった。`up`・`run`・`down` は本番で流していない。`run` の判定（PASS / BLOCK と期待の比べ）は作業端末で確かめた
+- 流すのは、最初の worker の後（§5.5）と、段 3 の完了の確認（§6）
 
 ## 2. 事前準備
 
@@ -567,6 +604,7 @@ braque には DaemonSet の Pod（cnidaria、kube-proxy、node-exporter、smart-
 - Longhorn のボリュームが healthy（ベースラインのものを除く）
 - Longhorn の設定がベースラインのまま（`5`、`disabled`、`block-if-contains-last-replica`）
 - `check-apps.sh` がベースラインと同じ。`netcheck.sh` は最初の worker の後と最後の台の後に流す（✋）
+- **最初の worker（duchamp）の後に、✋ §1.9 の NetworkPolicy の確認を流す**（1.32 の apiserver と、1.32 の kubelet のノードを含む形で、cnidaria の NetworkPolicy の処理が動くこと）
 
 30 分おいて様子を見る条件は置かない。
 
@@ -586,7 +624,7 @@ braque には DaemonSet の Pod（cnidaria、kube-proxy、node-exporter、smart-
 - Longhorn: attached のボリュームが全部 healthy（detached の `homegallery/cg-data` はベースラインのとおり）、instance-manager が 4 つとも running で段の前と同じ名前、engine image は v1.11.2 のまま。K8s 1.32 は Longhorn 1.11 の要件（1.25 以上）に入る。replica の置き場所
 - Longhorn の設定: ベースラインのまま（`5`、`disabled`、`block-if-contains-last-replica`、`best-effort`）
 - **iSCSI**: 8 台の `tools/node-state.sh` で、iscsid の PID が段の前と同じ（duchamp は段の間に起動したもの）、Longhorn のセッションはどれも今の instance-manager の IP へのもので、古いセッションが無い、`older-than-iscsid` のエンジンが段の前から増えていない
-- cnidaria: 8 台の Pod が Ready、`verify-nodes.sh` が全 PASS（`table inet cnidaria` を含む）、✋ `netcheck.sh` が全 PASS。**NetworkPolicy は本番に 1 つも無いので、規則がノードの nftables に入ることは確かめられない**（§1.8。計画 §6.3 の「NetworkPolicy（`hedgedoc/db-postgresql`）」の項目は、hedgedoc が消えたので当たらない）
+- cnidaria: 8 台の Pod が Ready、`verify-nodes.sh` が全 PASS（`table inet cnidaria` を含む）、✋ `netcheck.sh` が全 PASS。**✋ §1.9 の NetworkPolicy の確認が合格**（`up` の後に 8 台の `table inet cnidaria` に `k8u-npcheck/allow-8080` の規則が入り、ノードをまたぐ v4・v6 で許した通信が通り許していない通信が止まり、`down` の後に 8 台とも規則が消える）。計画 §6.3 の「NetworkPolicy（`hedgedoc/db-postgresql`）」の項目は、hedgedoc が消えたのでこれで代える
 - MetalLB: LoadBalancer の Service が応答する（gated、`h2-sshd`、`natsumi-sshd*`、minecraft）。告知ノードを記録する
 - braque の NFS が応答する。`registry.fraction.jp` が応答する
 - `kubectl --context fraction top nodes` が応答し、Prometheus のスクレイプが落ちていない。`apiserver_requested_deprecated_apis` を記録する（1.32 の後に `flowcontrol.apiserver.k8s.io/v1beta3` を使うクライアントがあれば、それは 404 を受けているので調べる）

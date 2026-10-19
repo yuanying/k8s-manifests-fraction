@@ -256,7 +256,7 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 - metrics-server が応答する（`kubectl top nodes`）、Prometheus のスクレイプが落ちていない
 - 新しい warning のイベント・ログ（kubelet、apiserver、kube-proxy、cnidaria、containerd）が増えていない
 - storage の版: 古い版で保存された組み込みのオブジェクトが無い（`tools/storage-versions.sh` の `OLD: 0`）、CRD の `status.storedVersions` がどれも 1 つ（同じく `CRDs with more than one stored version: 0`）。§6.4
-- NetworkPolicy の規則がノードの nftables に入っていることは、本番に NetworkPolicy があるときだけ見る（2026-10-19 に hedgedoc が消え、NetworkPolicy は 0 個になった。`runbook-stage-3.md` §1.8）
+- NetworkPolicy: 2026-10-19 に hedgedoc が消え、本番の NetworkPolicy は 0 個になった。段 3 からは、一時的な名前空間に NetworkPolicy と Pod を作り、ノードをまたいで（v4・v6）許した通信が通り許していない通信が止まること、規則が `table inet cnidaria` に入り、消すと消えることを確かめる（✋。`tools/npcheck.sh`、`runbook-stage-3.md` §1.9）
 
 ### 6.4 ロールバック
 
