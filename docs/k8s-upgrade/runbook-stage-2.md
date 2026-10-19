@@ -190,7 +190,7 @@ curl -fsSL https://dl.k8s.io/release/stable-1.31.txt     # v1.31.14
 | 3 | drain | **Longhorn のノードの worker 4 台（pablo、duchamp、chirico、oeilvert）は cordon + drain してから `install kubelet` し、確認の後に uncordon する。braque と control-plane の 3 台は drain しない** | 2026-10-19 のユーザーの承認（TASK.md の現在地）、dev の記録 |
 | 4 | drain の基準 | 「短時間の途切れ」より「Longhorn のボリュームの安全（データ、degraded のまま戻らないこと）」を重く見る。短時間の障害は許容する | 2026-10-19 のユーザーの方針 |
 | 5 | drain のやり方 | 段 C の手順をそのまま使う（`concurrent-replica-rebuild-per-node-limit` を `0`、最後の replica のあるノードでは `node-drain-policy` を `allow-if-replica-is-stopped` にして、Prometheus と MinIO を止める）。§2.6 | 段 C の手順書 §2.6、§3.7〜§3.8、§3.11 |
-| 6 | ノードの再起動 | **しない** | dev の記録 |
+| 6 | ノードの再起動 | **drain した 4 台は uncordon の前に再起動する**（§8.12。当初は「しない」だったが、段 2 の本番で古い iSCSI のセッションに当たって替えた）。braque と control-plane は再起動しない | dev の記録、2026-10-19 のユーザーの承認 |
 | 7 | コンテナの再起動 | 1.31 の kubelet で、そのノードの全コンテナが 1 回再起動することを前提にする（§8.4）。drain しないノード（braque、control-plane）の Pod も 1 回ずつ再起動する | dev の記録 |
 | 8 | Longhorn の `replica-auto-balance` | 普段から `disabled`。段 2 でも `disabled` であることを確かめる（段 1 の手順書 §2.6） | ユーザーの判断（2026-10-18） |
 | 9 | leader election を使う controller の 1 回の再起動と、gated の LoadBalancer の 1 回の途切れ | 許容する。記録して、Running に戻ったことを確かめる（§8.8） | 段 C、ユーザーの判断 |
@@ -447,10 +447,10 @@ kubectl --context fraction -n kubelet-serving-cert-approver logs deploy/kubelet-
 | 4 | etcd | `etcdctl endpoint status --cluster -w table`、`etcdctl endpoint health --cluster -w table` | 3/3 healthy、リーダーが居る、raft index がそろう。3 台とも 3.5.34 |
 | 5 | etcd の Pod | `kubectl --context fraction -n kube-system get pod etcd-<IP> -o wide`、ログの `error` | 1/1 Running、`etcd:3.5.34-0`。再起動の直後のほかのメンバーの `lost TCP streaming connection`・`peer became inactive` は数秒で止まる（段 1 と同じ形） |
 | 6 | apiserver | 対象のノードの `kube-apiserver` の Pod | 1/1 Ready。**UID は同じで、restartCount が 1 増える**。VIP の `/readyz` が `ok` |
-| 7 | Pod の再起動 | 段 1 の手順書 §4.2 の 1 と同じコマンド | **名前と UID が同じ（etcd の mirror Pod は除く）、各コンテナの restartCount がちょうど 1 増える**。2 以上増えたもの、CrashLoopBackOff、Running に戻らないものがあれば止める |
+| 7 | Pod の再起動 | 段 1 の手順書 §4.2 の 1 と同じコマンド | **名前と UID が同じ（etcd の mirror Pod は除く）、各コンテナの restartCount がちょうど 1 増える**。2 以上増えたもの、CrashLoopBackOff、Running に戻らないものがあれば止める。**例外（control-plane）**: apiserver が SIGTERM の後に 6443 を閉じたまま Endpoints に残る間（最長 30 秒）、そのノードで起き直した API を使うコンテナ（controller-manager、cnidaria、speaker など）が `https://10.254.0.1:443` の `connection refused` で数回落ち、10 秒ほど CrashLoopBackOff になり、§2.3 の監視の VIP が数十秒ところどころ失敗しうる（段 2 の .111。`results/stage-2/192.168.1.111.md` §5.1）。apiserver が起き直した後に Running に戻り、それ以上再起動が増えなければ許容する（2026-10-19 のユーザーの判断）。回数を記録する |
 | 8 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログは §8.1 のとおり（対象のノードの cnidaria は再起動したので、起動の後のログで見る） |
 | 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'`、lease の holder | 2/2 ずつ Ready。対象のノードのものは restartCount が 1 増える。リーダーが移ったかを記録する |
-| 10 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.5）と、`definition changed, will be restarted`・`Killing` のほかに、続くエラーが無い |
+| 10 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.5）、`crio` の factory、`node not found`（lister）、etcd の mirror Pod の `already exists`、古いコンテナの `ContainerStatus ... NotFound` のほかに、続くエラーが無い。`definition changed, will be restarted` は journal ではなくイベント（reason `Killing`）に出る |
 | 11 | §2.3 の監視 | — | 失敗があれば、§2.7 の告知ノードと 12 の再起動と突き合わせて記録する（§8.8。数回までは許容） |
 | 12 | leader election を使う controller | §8.8 のコマンド（時刻は 4.2 の 3 の開始） | **ほかのノードの** `gated` や Longhorn の CSI sidecar が 1 回再起動していてもよい。Running に戻り、再起動が続いていない。何が再起動したかを記録する |
 | 13 | 告知していた LoadBalancer | §2.7 の読み方と `check-apps.sh` | 応答する。告知が移ったか、戻ったかを記録する |
@@ -478,6 +478,7 @@ kubectl --context fraction -n kubelet-serving-cert-approver logs deploy/kubelet-
 | 5 | oeilvert | する | `prometheus-...-0`、`export-minio-0`〜`3` | 17 | 最後の replica が最も多い。worker の最後にする（計画 §6.2）。`homegallery/api` が Pending になる |
 
 - 当日の読み取りで replica 1 の置き場所が変わっていれば、止めるものを決め直す（§2.6）。oeilvert は最後のままにする
+- **前の台の作業で replica 1 の置き場所が変わる。** Prometheus を止めて戻すと、Pod は前と違うノードで起き直すことがあり、data locality（`best-effort`）で replica ごとそのノードへ移る（段 2 の本番では chirico の作業で、Prometheus の 2 つのボリュームが chirico と pablo に移り、oeilvert で止めるものは MinIO だけになった。`results/stage-2/chirico.md` §6）。各台の前に必ず読み直す
 - drain で Pod がほかのノードへ寄るので、後のノードほど載っている Pod が増えていることがある（段 C の pablo の Pod はすべて oeilvert に移った）。1 台ごとに読み直す
 
 ### 5.2 drain する 4 台（pablo、duchamp、chirico、oeilvert）の手順
@@ -533,6 +534,7 @@ kubectl --context fraction -n kubelet-serving-cert-approver logs deploy/kubelet-
 
    - 対象のノードの replica はすべて stopped で、ほかのノードに代わりの replica が作られていない（rebuild-limit が `0` のため。`replicas.longhorn.io` のボリュームとノードの組が 1 と同じ）
    - 対象のノードに残っているのは DaemonSet の Pod だけ
+   - 退いた Pod のボリュームが、ほかのノードでアタッチされ Running に戻っている。`FailedAttachVolume` や `Engine of volume ... dead unexpectedly`（faulted）が続くときは、§8.12 の古い iSCSI のセッションを疑い、止めて報告する
    - 退いた Pod がほかのノードで Running に戻りつつある（Longhorn のボリュームを使うものはアタッチを待って 1〜2 分かかる。段 C の chirico）。Running / Completed 以外の Pod は、退いて作り直している途中のものと、oeilvert の `homegallery/api`（Pending）だけ
 7. ✋ 流す。
 
@@ -543,7 +545,8 @@ kubectl --context fraction -n kubelet-serving-cert-approver logs deploy/kubelet-
    - `<ノード>` は `porkadot.yaml` の `nodes` のキー（`pablo`、`duchamp`、`chirico`、`oeilvert`）
    - 時刻（開始と終わり）と rc を記録する。段 1 の本番では 1 台 27〜47 秒だった
 8. kubelet の起動から 1 分ほど待ってから、§5.3 の確認。
-9. §5.5 の uncordon と後始末。
+9. ✋ **uncordon の前に、ノードを再起動する**（§8.12。段 2 の本番で追加した。2026-10-19 のユーザーの承認）。段 C の手順書 §3.9・§3.10 と同じ（再起動の前に告知している `Cluster` の LoadBalancer を読む、duchamp は SSH が戻ったらすぐ `no_turbo` を `1` に、oeilvert は段 C の手順書 §4.3 も見る）。再起動の後、ノードで `sudo iscsiadm -m session` が `No active sessions.` であること
+10. §5.5 の uncordon と後始末。
 
 ### 5.3 drain した台の確認（uncordon の前）
 
@@ -612,7 +615,7 @@ drain しても退く Pod が無い（段 C の braque の drain は 1 秒で、
 - Longhorn の設定が元の値（`5`、`disabled`、`block-if-contains-last-replica`）。Prometheus の `spec.replicas` が 2、`minio/minio` が 4
 - `netcheck.sh`、`check-apps.sh` がベースラインと同じ
 
-段 C と違い、ノードを再起動しないので、30 分おいて様子を見る条件は置かない。
+30 分おいて様子を見る条件は置かない。加えて、drain した台は再起動の後に `iscsiadm -m session` が `No active sessions.` だったこと（§8.12）。
 
 ## 6. 段 2 の完了の確認
 
@@ -730,11 +733,11 @@ K8s 1.31 で kubelet のコンテナの hash の計算が変わった（CHANGELO
 
 ### 8.7 全台が止まったとき
 
-段 1 の手順書 §8.8 と同じ。段 2 ではノードを再起動しないので当たらない。
+段 1 の手順書 §8.8 と同じ。段 2 で再起動するのは drain した worker だけ（1 台ずつ）なので、当たらない。
 
 ### 8.8 apiserver が止まりかける間の leader election の controller の再起動
 
-段 1 の手順書 §8.9 と同じ扱い（ユーザーの判断で許容。記録して、Running に戻ったことと、再起動が続いていないことを確かめる）。段 1 の本番では一度も起きなかったが、段 2 では control-plane の `install kubelet` で apiserver のコンテナが止まる（§4.1）ので、段 C の control-plane の再起動と同じことが起こりうる。
+段 1 の手順書 §8.9 と同じ扱い（ユーザーの判断で許容。記録して、Running に戻ったことと、再起動が続いていないことを確かめる）。段 1 の本番では一度も起きなかったが、段 2 では control-plane の `install kubelet` で apiserver のコンテナが止まる（§4.1）ので、段 C の control-plane の再起動と同じことが起こりうる。段 2 の本番では、ほかのノードの controller は再起動せず、.111 でそのノードの controller-manager・cnidaria・speaker が 2〜3 回再起動し、VIP が 18 秒の間に 9 回失敗した（§4.3 の 7 の例外、`results/stage-2/192.168.1.111.md` §5.1）。
 
 ```sh
 kubectl --context fraction get pods -A -o json | jq -r '.items[] | .metadata.namespace as $ns | .metadata.name as $n | .spec.nodeName as $node
@@ -790,6 +793,16 @@ K8s 1.31 では、kubelet の serving の証明書の CSR を、apiserver（Node
 - dev では、drain せずに上げたノードで同じ形が出たが、Longhorn が remount のために Pod を消して 1 分ほどで自然に止まった（dev の記録の見つけたことの 4）
 
 それでも、ある台の後に Longhorn のボリュームの `FailedMount`（`no Pending workload pods`）が 5 分を超えて続いたら、段 1 の手順書 §8.11 のとおり、同じ PVC の Completed / Succeeded の Pod（ノードを問わない）を洗い出し、承認を取って消す。
+
+### 8.12 drain の後に残る iSCSI のセッション（段 2 の本番で起きた）
+
+drain で instance-manager の Pod が消えても、そのノードのホストには、消えた instance-manager の Pod の IP への iSCSI のセッションが残ることがある（`iSCSI Session State: FREE`、`Internal iscsid Session State: REOPEN`。Wiki の `wiki/topics/自宅クラスター.md` の既知の問題）。残ったセッションの iqn のボリュームを、後でそのノードにアタッチしようとすると、エンジンが起動のときに古いセッションの logout に失敗して落ち（`failed to logout target ... 32 - target likely not connected`）、ボリュームが faulted を繰り返す。
+
+- 段 C は drain の後にノードを再起動していたので表に出なかった。段 2 は当初、drain の後に再起動しない手順にしていたので、oeilvert の drain でボリュームが chirico に寄ったときに当たり、4 つのボリュームを使う Pod が 20 分ほど止まった（`results/stage-2/iscsi-stale-sessions.md`）
+- 本番の段 2 では pablo 0 本、duchamp 2 本、chirico 15 本、oeilvert 2 本残った。どの台で残るかは決まっていない
+- **対策: drain した台は、uncordon の前にノードを再起動する**（§5.2 の 9）。再起動で古いセッションは消える（段 2 の chirico、duchamp、oeilvert で確かめた）
+- 当たったときの止め方（段 2 で行ったもの。ユーザーの承認が要る）: 古いセッションのあるノードを cordon し、アタッチできずにいる Pod を消して、ほかのノードでアタッチさせる。その後、そのノードを drain して再起動する
+- 再起動せずに古いセッションだけを消す方法は、dev で確かめてから検討する
 
 ## 9. 記録
 
