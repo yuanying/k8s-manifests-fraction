@@ -1,0 +1,96 @@
+# NetworkPolicy check (runbook-stage-3.md section 6): created and removed by ./npcheck.sh up / down.
+# A server and two clients on every node (all taints tolerated). The policy lets only
+# role=allowed pods reach the servers, and only on 8080; 9090 listens but is not allowed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8u-npcheck
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: npcheck-server
+  namespace: k8u-npcheck
+spec:
+  selector:
+    matchLabels: {app: npcheck-server}
+  template:
+    metadata:
+      labels: {app: npcheck-server}
+    spec:
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: web
+          image: busybox:1.36
+          command: [sh, -c, 'mkdir -p /www && echo "$NODE" > /www/index.html && httpd -p 9090 -h /www && exec httpd -f -p 8080 -h /www']
+          env:
+            - name: NODE
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 32Mi}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: npcheck-allowed
+  namespace: k8u-npcheck
+spec:
+  selector:
+    matchLabels: {app: npcheck-client, role: allowed}
+  template:
+    metadata:
+      labels: {app: npcheck-client, role: allowed}
+    spec:
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: client
+          image: busybox:1.36
+          command: [sleep, infinity]
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 32Mi}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: npcheck-denied
+  namespace: k8u-npcheck
+spec:
+  selector:
+    matchLabels: {app: npcheck-client, role: denied}
+  template:
+    metadata:
+      labels: {app: npcheck-client, role: denied}
+    spec:
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: client
+          image: busybox:1.36
+          command: [sleep, infinity]
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 32Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-8080
+  namespace: k8u-npcheck
+spec:
+  podSelector:
+    matchLabels: {app: npcheck-server}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {role: allowed}
+      ports:
+        - protocol: TCP
+          port: 8080
