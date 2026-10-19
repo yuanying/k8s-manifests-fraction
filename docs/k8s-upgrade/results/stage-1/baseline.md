@@ -13,7 +13,7 @@
 | porkadot（§1.4） | `porkadot-dev/porkadot` が `v0.30.0`、`lib/porkadot/version.rb` が 0.30.0。cwd は段 1 の worktree（`stage-1-k8s-1-30` のブランチ。base は PR #21 をマージした master の `60ef0a0`）。`git status --short assets porkadot.yaml` は空 |
 | secrets（§1.6。2026-10-19 00:44Z） | `assets/certs/kubernetes/ca.crt` と ConfigMap `default/kube-root-ca.crt` が一致（`AB:5A:49:9E:…:A0:3E`）。`assets/certs/kubernetes/apiserver.crt` と、VIP・.111・.112・.113 の 6443 が返す証明書の 4 つが一致（`4A:E8:7B:B3:…:97:63`）。`front-proxy-ca.crt` は `extension-apiserver-authentication` の 4 つの CA のうち最新（2026-06-13 発行）と一致。.111 の `/etc/etcd/pki` の `ca.crt`・`etcd.key` は `assets/kubelet/192.168.1.111/addons/etcd/` のものと sha256 が一致。`etcd.crt` は render で作り直したので違うが、公開鍵が同じで、assets の etcd の CA で検証が通る（runbook §8.2） |
 | 入れる版（§1.7。00:44Z） | `stable-1.30.txt` は v1.30.14（`stable.txt` は v1.37.1）。registry.k8s.io の kube-apiserver・kube-controller-manager・kube-scheduler・kube-proxy の v1.30.14、`etcd:3.5.34-0`、`coredns/coredns:v1.11.3` はどれも amd64 と arm64 を含む。kubelet・kubectl の v1.30.14、crictl v1.30.1、etcd v3.5.34 の amd64・arm64 はどれも 200 |
-| 作業端末の kubectl | v1.29.8。.113 の作業の前（01:0xZ）に、ユーザーの指示で asdf の v1.30.14 にした（`~/.tool-versions`） |
+| 作業端末の kubectl | v1.29.8。段 1 の .113 の作業の前に、ユーザーの指示で asdf の v1.30.14 にした（`~/.tool-versions`） |
 | 監視（§2.3） | 00:44Z に作業端末で開始。ログはタスクディレクトリの `notes/stage-1/stage-1-probe.log` |
 
 ## 2. クラスタ全体のベースライン（runbook §2.2。2026-10-19 00:42Z〜00:50Z）

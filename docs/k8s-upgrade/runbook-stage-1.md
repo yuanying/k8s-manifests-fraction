@@ -468,7 +468,7 @@ kubectl --context fraction version
 | 6 | apiserver | 対象のノードの `kube-apiserver` の Pod | 1/1 Ready。UID と再起動回数が 4.2 の 1 で控えたものと同じ（dev では再起動しなかった）。VIP の `/readyz` が `ok` |
 | 7 | Pod の再起動 | 4.2 の 1 と同じコマンド | etcd の Pod のほかは、名前・UID・再起動回数が同じ |
 | 8 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログの error の増え方は §8.1 のとおり（対象のノードで `no route` の error が 7〜10 件、1 秒ほどの間） |
-| 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'` | 2/2 ずつ Ready |
+| 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'` | 2/2 ずつ Ready。kubelet の再起動の直後は、そのノードの Pod が probe のやり直しまで 10 秒ほど 0/1 に見える（段 1 の .112 の scheduler）。再起動回数が増えていなければ、数十秒おいて読み直す |
 | 10 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.6）のほかに、続くエラーが無い |
 | 11 | §2.3 の監視 | — | 失敗が無い。失敗があれば、§2.7 の告知ノードと 12 の再起動と突き合わせて記録する（§8.9。数回までは許容） |
 | 12 | leader election を使う controller | §8.9 のコマンド（時刻は 4.2 の 3 の開始） | ほかのノードの `gated` や Longhorn の CSI sidecar が 1 回再起動していてもよい。Running に戻り、再起動が続いていない。何が再起動したかを記録する |
