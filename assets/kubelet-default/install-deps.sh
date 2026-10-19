@@ -2,6 +2,17 @@
 
 set -euo pipefail
 
+# Each binary is installed as ${BIN_DIR}/<name>-<version> and linked from
+# ${BIN_DIR}/<name>. A version already on the node is reused and only
+# relinked, so going back to an earlier version needs no download.
+# --force downloads everything again.
+FORCE=false
+case "${1:-}" in
+    "") ;;
+    --force) FORCE=true ;;
+    *) echo "Usage: $0 [--force]" >&2; exit 2 ;;
+esac
+
 architecture="arm64"
 case $(uname -m) in
     x86_64) architecture="amd64" ;;
@@ -9,42 +20,75 @@ case $(uname -m) in
 esac
 echo $architecture
 
+# PORKADOT_OPT_DIR is only meant to be overridden by tests.
+OPT_DIR=${PORKADOT_OPT_DIR:-/opt}
+BIN_DIR=${OPT_DIR}/bin
+CNI_BIN_DIR=${OPT_DIR}/cni/bin
+# The CNI plugins are extracted in place, so their version is kept in a file.
+CNI_VERSION_FILE=${CNI_BIN_DIR}/.porkadot-cni-plugins-version
+
+mkdir -p ${BIN_DIR}
+mkdir -p ${CNI_BIN_DIR}
+
+# install_bin NAME VERSION FETCH
+# FETCH is called with a work directory and leaves the binary there as NAME.
+install_bin() {
+  local name=$1 version=$2 fetch=$3
+  local target=${BIN_DIR}/${name}-${version}
+
+  if [ "${FORCE}" = true ] || [ ! -f ${target} ]; then
+    local tmp=$(mktemp -d)
+    ${fetch} ${tmp}
+    chmod +x ${tmp}/${name}
+    mv ${tmp}/${name} ${target}.tmp
+    mv ${target}.tmp ${target}
+    rm -rf ${tmp}
+  else
+    echo "${target} already exists"
+  fi
+
+  if [ "$(readlink ${BIN_DIR}/${name} || true)" != "${target}" ]; then
+    rm -f ${BIN_DIR}/${name}
+    ln -s ${target} ${BIN_DIR}/${name}
+  fi
+}
+
 CNI_VERSION="v1.4.1"
-mkdir -p /opt/cni/bin
-curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
+if [ "${FORCE}" = true ] || [ "$(cat ${CNI_VERSION_FILE} 2>/dev/null || true)" != "${CNI_VERSION}" ]; then
+  CNI_TMP=$(mktemp -d)
+  curl -fL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" \
+    -o ${CNI_TMP}/cni-plugins.tgz
+  tar -C ${CNI_BIN_DIR} -xzf ${CNI_TMP}/cni-plugins.tgz
+  echo ${CNI_VERSION} > ${CNI_VERSION_FILE}
+  rm -rf ${CNI_TMP}
+else
+  echo "CNI plugins ${CNI_VERSION} already installed"
+fi
 
-RELEASE="v1.29.8"
+RELEASE="v1.30.14"
 
-mkdir -p /opt/bin
+fetch_kubectl() {
+  curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl -o $1/kubectl
+}
+install_bin kubectl ${RELEASE} fetch_kubectl
 
-curl -L https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl \
-  -o /opt/bin/kubectl-${RELEASE}
-chmod +x /opt/bin/kubectl-${RELEASE}
-rm -f /opt/bin/kubectl
-ln -s /opt/bin/kubectl-${RELEASE} /opt/bin/kubectl
+fetch_kubelet() {
+  curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubelet -o $1/kubelet
+}
+install_bin kubelet ${RELEASE} fetch_kubelet
 
-curl -L https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubelet \
-  -o /opt/bin/kubelet-${RELEASE}
-chmod +x /opt/bin/kubelet-${RELEASE}
-rm -f /opt/bin/kubelet
-ln -s /opt/bin/kubelet-${RELEASE} /opt/bin/kubelet
+ETCD_VER="3.5.34"
+fetch_etcdctl() {
+  curl -fL https://github.com/etcd-io/etcd/releases/download/v${ETCD_VER}/etcd-v${ETCD_VER}-linux-${architecture}.tar.gz \
+    -o $1/etcd.tar.gz
+  tar zxvf $1/etcd.tar.gz -C $1/ --strip-components=1
+}
+install_bin etcdctl ${ETCD_VER} fetch_etcdctl
 
-ETCD_VER="3.5.12"
-ETCD_URL=https://github.com/etcd-io/etcd/releases/download/v${ETCD_VER}/etcd-v${ETCD_VER}-linux-${architecture}.tar.gz
-ETCD_TMP=$(mktemp -d)
-
-curl -L ${ETCD_URL} -o ${ETCD_TMP}/etcd.tar.gz
-tar zxvf ${ETCD_TMP}/etcd.tar.gz -C ${ETCD_TMP}/ --strip-components=1
-chmod +x ${ETCD_TMP}/etcdctl
-rm -f /opt/bin/etcdctl
-mv ${ETCD_TMP}/etcdctl /opt/bin/etcdctl-${ETCD_VER}
-ln -s /opt/bin/etcdctl-${ETCD_VER} /opt/bin/etcdctl
-
-CRICTL_VER="v1.28.0"
-CRICTL_URL=https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz
-CRICTL_TMP=$(mktemp -d)
-curl -L ${CRICTL_URL} -o ${CRICTL_TMP}/crictl.tar.gz
-tar zxvf ${CRICTL_TMP}/crictl.tar.gz -C ${CRICTL_TMP}/
-rm -f /opt/bin/crictl
-mv ${CRICTL_TMP}/crictl /opt/bin/crictl-${CRICTL_VER}
-ln -s /opt/bin/crictl-${CRICTL_VER} /opt/bin/crictl
+CRICTL_VER="v1.30.1"
+fetch_crictl() {
+  curl -fL https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz \
+    -o $1/crictl.tar.gz
+  tar zxvf $1/crictl.tar.gz -C $1/
+}
+install_bin crictl ${CRICTL_VER} fetch_crictl
