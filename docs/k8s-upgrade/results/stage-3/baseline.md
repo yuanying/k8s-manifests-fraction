@@ -115,3 +115,16 @@ minecraft の 4 つは speaker のログに告知の行が無かった（段 1�
 | sha256 | `e716b97366c9a14b9ddf6a6dab07734e6c0f33415020b6e6c1e6fe72443c157e` |
 | 置き場所 | 段 3 の worktree の `./backup/`（`.gitignore` で除外。git には入れていない）。worktree を片付ける前に、メインの checkout の `backup/` へ移す |
 | 前のバックアップとの比較 | メインの checkout の `backup/` の段 2 の `etcd-2026-10-19T07:16:21+00:00.db`（55,107,616）と同じサイズ |
+
+## 4. storage version の書き直し（runbook §2.5）
+
+| 項目 | 値 |
+|---|---|
+| 洗い出し（§2.5 の 1。23:01Z） | `OLD: 32`（FlowSchema 13、PriorityLevelConfiguration 8、EndpointSlice 11）、`CRDs with more than one stored version: 0`。runbook の 3 種のほかは無い |
+| トークン（§2.5 の 2） | 23:15:10Z に `infra-admin` の 1 時間のトークンを発行。`auth can-i update flowschemas` と `update endpointslices -A` は `yes` |
+| FlowSchema と PriorityLevelConfiguration（§2.5 の 3） | `replace --dry-run=server` で 21 行の `replaced (server dry run)`。23:15:17Z〜23:15:18Z に `replace` で 21 行の `replaced`、rc 0。resourceVersion の衝突は無かった。21 個とも `autoupdate-spec` は `"true"` |
+| EndpointSlice（§2.5 の 4） | `replace --dry-run=server` で 11 行の `replaced (server dry run)`。23:15:24Z〜23:15:25Z に `replace` で 11 行の `replaced`（runbook の 11 個と同じ名前）。衝突は無かった |
+| 書き直した後（§2.5 の 5） | `tools/storage-versions.sh`: `prefixes: 63, keys: 2125, OLD: 0, CRDs with more than one stored version: 0`。FlowSchema・PriorityLevelConfiguration の 21 個は resourceVersion だけが変わり、generation と `autoupdate-spec` は同じ。VIP の `/readyz` は `ok`、監視の FAIL は 0。`nfsd/nfs-ntht8` の endpoint は 192.168.1.131 のままで、oeilvert から NFS が読める |
+| トークンの破棄（§2.5 の 6） | 23:17Z にファイルを消した（サーバーの側では 00:15Z に切れる） |
+
+出力（キーと版だけ）はタスクディレクトリの `notes/stage-3/sv-20261019T2301Z/`（前）と `sv-20261019T2301Z-after/`（後）。`apf-before.txt`・`apf-after.txt` は名前・generation・resourceVersion・`autoupdate-spec` だけ。
