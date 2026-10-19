@@ -738,6 +738,23 @@ kubectl --context fraction get pods -A -o json | jq -r '.items[] | .metadata.nam
   どのノードも `ecdsa-sha2-nistp256` を返すこと（サーバーが ECDSA を出すため）
 - pi のサンドボックスの中では ssh-agent のソケットが塞がれ、net-ssh は `~/.ssh/id_ed25519` を読もうとして `ed25519` の gem が無いので認証で落ちる（`NotImplementedError: unsupported key type 'ssh-ed25519'`）。ノードに入る porkadot のコマンドはサンドボックスの外で流す（段 1 ではユーザーの判断でそうした）
 
+### 8.11 kubelet の再起動の後の Longhorn の `no Pending workload pods`（longhorn/longhorn#8072 の形）
+
+kubelet は再起動の後、動いている Pod のボリュームにも `NodePublishVolume` をやり直す。Longhorn v1.11.2 の CSI は、その PVC を使う Pod に Running のほか **Succeeded（Completed）の Pod** があると、`Aborted: no Pending workload pods for volume … to be mounted: map[Running:[…] Succeeded:[…]]` で断り続ける（段 1 の chirico、oeilvert。`results/stage-1/chirico.md` §4.1）。Pod は動き続けるが、FailedMount のイベントと kubelet の error は自然には止まらない。
+
+- 本番では、backup の CronJob や手動の Job（`natsumi-backup*`、`deep-researcher-backup` など）が、動いている Pod と同じ PVC を使う Completed の Pod を残す
+- **Longhorn は別のノードの Succeeded の Pod も数える**（oeilvert の `natsumi-0` で、chirico に残った Completed の Pod が map に入った）
+- 止めるには、その PVC を使う Completed の Pod を消す（chirico では、消した後の kubelet の次のやり直しで通った）。Pod の削除なので、`infra-admin` のトークンが要る
+- **段 2 以降では、kubelet を再起動する前に、対象のノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod を、ノードを問わずに洗い出して消す**（承認の上で。Job・CronJob・Running の Pod には触らない）。洗い出し方（読み取り）:
+
+  ```sh
+  kubectl --context fraction get pods -A -o json | jq -r --arg n <ノード> '
+    [.items[] | . as $p | .spec.volumes[]? | select(.persistentVolumeClaim)
+     | {pvc: ($p.metadata.namespace+"/"+.persistentVolumeClaim.claimName), pod: ($p.metadata.namespace+"/"+$p.metadata.name), phase: $p.status.phase, node: $p.spec.nodeName}]
+    | group_by(.pvc)[] | select(any(.phase=="Running" and .node==$n) and any(.phase=="Succeeded" or .phase=="Failed"))
+    | .[] | select(.phase!="Running") | [.pvc, .pod, .phase, .node] | @tsv'
+  ```
+
 ## 9. 記録
 
 `results/stage-1/` に、ベースライン（`baseline.md`）、`install kubernetes`（`control-plane.md`）、各台（`<ノード>.md`。control-plane は `192.168.1.11N.md`）、全体のまとめ（`summary.md`）を残す。各台の雛形は `results/stage-1/template.md`。
