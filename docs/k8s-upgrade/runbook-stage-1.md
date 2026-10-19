@@ -10,7 +10,7 @@
 | kubelet、kubectl（ノードの `/opt/bin`） | v1.29.8 | **v1.30.14** |
 | etcd（control-plane の static Pod） | 3.5.12-0 | **3.5.34-0**（パッチ更新） |
 | etcdctl（ノードの `/opt/bin`） | 3.5.12 | 3.5.34 |
-| crictl（ノードの `/opt/bin`） | v1.28.0 | **v1.30.1**（1.29 で上げ忘れていた分） |
+| crictl（ノードの `/opt/bin`） | control-plane v1.28.0、worker v1.29.0 | **v1.30.1**（1.29 で上げ忘れていた分） |
 | CoreDNS | v1.10.1 | **v1.11.3** |
 | control-plane の `/etc/etcd/pki` | root 0644 | **root 0600**（porkadot#25） |
 | etcd の `ETCD_UNSUPPORTED_ARCH=arm64` | あり | **なし**（計画 §10） |
@@ -99,6 +99,7 @@ BUNDLE_GEMFILE=$P/Gemfile bundle exec $P/exe/porkadot <サブコマンド> --con
 - このリポジトリの作業ツリーの `assets/` と `porkadot.yaml` に、PR の外の変更が無いこと（`git status --short assets porkadot.yaml` が空）。メインの checkout にほかの作業（staged の変更、未追跡のディレクトリ）があれば、master の別の worktree を作ってそこで流す
 - 段 1 で流す porkadot のコマンドは、`etcd backup`、`install kubernetes --node 192.168.1.111`、`install kubelet --node <ノード>` の 3 つだけ。**`install all`、`--node` なしの `install kubelet`、`render`（特に `render all` と `render certs`）、`setup-node`、`setup-containerd` は流さない**
 - 0.30.0 の `install kubelet` は `/opt/bin/<名前>` の向き先で判定して張り替えるので、**`--force` は要らない**（porkadot#26。dev の記録の `verification-0.30-rc.md`）。0.29.2 で要った `--force` の注意（`verification-1.30.md` の結論の 2）は 0.30.0 では当たらない
+- **porkadot（SSHKit / net-ssh）でノードに入れることを、流す前に確かめる**（§8.10）。作業端末の `~/.ssh/known_hosts` の行の順によっては host key の mismatch で止まる。pi のサンドボックスの中では ssh-agent が使えず認証で落ちるので、ノードに入る porkadot のコマンドはサンドボックスの外で流す
 
 ### 1.5 etcdctl の使い方
 
@@ -162,7 +163,7 @@ curl -fsSL https://dl.k8s.io/release/stable-1.30.txt     # v1.30.14
 - `stable-1.30.txt` は v1.30.14（1.30 の最終パッチ。1.30 は EOL なので、これより新しいパッチは出ない見込み）
 - registry.k8s.io の `kube-apiserver`・`kube-controller-manager`・`kube-scheduler`・`kube-proxy` の v1.30.14、`etcd:3.5.34-0`、`coredns/coredns:v1.11.3` は、どれも amd64 と arm64 を含む
 - `dl.k8s.io` の kubelet と kubectl の v1.30.14（amd64、arm64）、etcd の `etcd-v3.5.34-linux-arm64.tar.gz`、crictl の v1.30.1（amd64、arm64）は、どれも 200 を返す
-- 作業端末の kubectl は v1.29.8（1.30 の ±1 に入る。計画 §6.1 の 4）
+- 作業端末の kubectl は v1.29.8（1.30 の ±1 に入る。計画 §6.1 の 4）。段 1 の当日（2026-10-19）、ユーザーの指示で asdf の v1.30.14 にした（`~/.tool-versions`）
 
 ### 1.8 cnidaria の手順書のスクリプト
 
@@ -406,7 +407,7 @@ kubectl --context fraction version
 - kubelet が v1.30.14 で再起動する。dev では、バイナリを落とす初回で 40 秒ほど、その後 Ready で新しい版を報告するまで数秒
 - `install.sh` は kubelet の addon も入れる。本番の addon は `dns`（`cluster-dns.service`）、`multipathd`、control-plane では `etcd`
   - `etcd` の addon: `/etc/etcd/pki` の証明書と鍵を root 0600 で置き直し（§8.5）、`etcd-server.yaml` を置く。**etcd の static Pod が 3.5.34 のイメージで作り直される**。証明書は作り直したもの（同じ鍵、同じ CA）に替わる
-  - `dns` の addon: `systemd-networkd` を再起動する。そのたびに、**全ノードの cnidaria が v6 の経路の入れ直しで `Reconciler error ... no route` を 7〜10 件出し、1 秒ほどで収まる**（§8.1）
+  - `dns` の addon: `systemd-networkd` を再起動する。そのたびに、**対象のノードの cnidaria が v6 の経路の入れ直しで `Reconciler error ... no route` を 7〜10 件出し、1 秒ほどで収まる。ほかのノードの cnidaria は info の `no route for a family` を数件出す**（§8.1）
 - 0.29.x で入れたノードには CNI plugins の版の印が無いので、0.30.0 での最初の `install kubelet` で CNI plugins を 1 回落とし直す（§8.4）
 - dev では、control-plane の `install kubelet` で入れ替わった Pod は etcd の static Pod だけだった（新しい UID）。apiserver、cnidaria、kube-proxy、speaker、KCM、scheduler はそのまま
 - drain も cordon もしない（§2.1）
@@ -466,8 +467,8 @@ kubectl --context fraction version
 | 5 | etcd の Pod | `kubectl --context fraction -n kube-system get pod etcd-<IP> -o wide`、`kubectl --context fraction -n kube-system logs etcd-<IP> \| grep -iE 'unsupported\|error' \| tail` | 1/1 Running、イメージが `etcd:3.5.34-0`。`unsupported architecture` のログが無い |
 | 6 | apiserver | 対象のノードの `kube-apiserver` の Pod | 1/1 Ready。UID と再起動回数が 4.2 の 1 で控えたものと同じ（dev では再起動しなかった）。VIP の `/readyz` が `ok` |
 | 7 | Pod の再起動 | 4.2 の 1 と同じコマンド | etcd の Pod のほかは、名前・UID・再起動回数が同じ |
-| 8 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログの error の増え方は §8.1 のとおり（`no route` が 7〜10 件、1 秒ほどの間） |
-| 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'` | 2/2 ずつ Ready |
+| 8 | cnidaria | 全ノードの cnidaria の Pod が Ready。`verify-nodes.sh` | 全 PASS。ログの error の増え方は §8.1 のとおり（対象のノードで `no route` の error が 7〜10 件、1 秒ほどの間） |
+| 9 | KCM と scheduler | `kubectl --context fraction -n kube-system get pods -o wide -l 'app.kubernetes.io/component in (kube-controller-manager,kube-scheduler)'` | 2/2 ずつ Ready。kubelet の再起動の直後は、そのノードの Pod が probe のやり直しまで 10 秒ほど 0/1 に見える（段 1 の .112 の scheduler）。再起動回数が増えていなければ、数十秒おいて読み直す |
 | 10 | kubelet のログ | ノードで `sudo journalctl -u kubelet --since '-10min' --no-pager \| grep -iE 'error\|fail' \| tail` | 起動の直後の `InvalidDiskCapacity`（§8.6）のほかに、続くエラーが無い |
 | 11 | §2.3 の監視 | — | 失敗が無い。失敗があれば、§2.7 の告知ノードと 12 の再起動と突き合わせて記録する（§8.9。数回までは許容） |
 | 12 | leader election を使う controller | §8.9 のコマンド（時刻は 4.2 の 3 の開始） | ほかのノードの `gated` や Longhorn の CSI sidecar が 1 回再起動していてもよい。Running に戻り、再起動が続いていない。何が再起動したかを記録する |
@@ -516,6 +517,7 @@ replica 1 のボリューム（最後の replica）の置き場所を、作業�
    - Longhorn の `replica-auto-balance` が `disabled`（§2.6。途中で変わっていないこと）
    - そのノードが告知している LoadBalancer（§2.7）
    - ノードで `ls -l /opt/bin/{kubelet,kubectl,crictl}`
+   - そのノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod（ノードは問わない。§8.11）。あれば、承認を取って `install kubelet` の前に消す
 2. ✋ 流す。
 
    ```sh
@@ -652,7 +654,8 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 
 ### 8.1 `install kubelet` のたびの cnidaria の `no route`
 
-`install kubelet` の kubelet の addon `dns` は `systemd-networkd` を再起動する。そのたびに、全ノードの cnidaria（v0.1.1）が v6 の経路を入れ直そうとして `Reconciler error ... no route` を 7〜10 件出し、1 秒ほどで収まる（dev の記録の結論の 5。前のタスクでも同じだった）。
+`install kubelet` の kubelet の addon `dns` は `systemd-networkd` を再起動する。そのたびに、cnidaria（v0.1.1）が v6 の経路を入れ直そうとして `Reconciler error ... no route` を 7〜10 件出し、1 秒ほどで収まる（dev の記録の結論の 5。前のタスクでも同じだった）。
+本番の段 1 の .113 では、error を出したのは対象のノードの cnidaria だけだった（8 件、1 秒ほど）。ほかの 7 台の cnidaria は error ではなく、info の `warning: no route for a family: node <対象> has the IPv6 pod CIDR …` を 4 件ずつ、3 秒ほどの間に出した（`results/stage-1/192.168.1.113.md` §7）。
 想定内のログとして扱う。1 秒を超えて続く、ほかの error が出る、`verify-nodes.sh` が FAIL する、のどれかなら止める。
 
 ### 8.2 render が証明書を作り直す
@@ -717,6 +720,41 @@ kubectl --context fraction get pods -A -o json | jq -r '.items[] | .metadata.nam
 
 - §2.3 の監視の FAIL と時刻を突き合わせ、`results/stage-1/` の記録で「ノードの作業によるもの」と「leader election によるもの」を分けて書く
 - この途切れを無くす方法（段 C の手順書 §5.3 の候補）は、段 1 では使わない
+
+### 8.10 porkadot の SSH（SSHKit の known_hosts と、サンドボックスの ssh-agent）
+
+段 1 の .113 の `install kubelet` が、SSH の接続で 2 回止まった（`Net::SSH::HostKeyMismatch`。ノードは変わっていない。`results/stage-1/192.168.1.113.md` §3.1）。
+
+- porkadot が使う SSHKit 1.25.0 は、net-ssh に自前の known_hosts の parser（`SSHKit::Backend::Netssh::KnownHostsKeys`）を渡す。これは hashed の行では**最初に一致した 1 行の鍵だけ**を返し、ed25519 の行は `ed25519` の gem が無いので捨てる
+- そのため、作業端末の `~/.ssh/known_hosts` で、あるノードの rsa の行が ecdsa の行より前にあると、sshkit は rsa の鍵だけを返し、サーバーが出す ECDSA の鍵と合わずに止まる。OpenSSH の `ssh` は全部の行を見るので通り、鍵も正しい
+- 2026-10-19 は .112 と .113 が当たった（coordinator が ecdsa の行を先に並べ替えた。控えは `~/.ssh/known_hosts.bak-k8u-stage1-20261019`）。根本の対策は porkadot の側でとる（タスクのバックログ）
+- 流す前の確かめ方（読み取り。porkadot の checkout を書き換えない）:
+
+  ```sh
+  BUNDLE_GEMFILE=$P/Gemfile bundle exec ruby -e '
+  require "sshkit"; kh = SSHKit::Backend::Netssh::KnownHosts.new
+  %w[192.168.1.111 192.168.1.112 192.168.1.113 192.168.1.131 192.168.1.83 192.168.1.135 192.168.1.82 192.168.1.134].each { |h| puts "#{h} #{kh.search_for(h).map(&:ssh_type)}" }'
+  ```
+
+  どのノードも `ecdsa-sha2-nistp256` を返すこと（サーバーが ECDSA を出すため）
+- pi のサンドボックスの中では ssh-agent のソケットが塞がれ、net-ssh は `~/.ssh/id_ed25519` を読もうとして `ed25519` の gem が無いので認証で落ちる（`NotImplementedError: unsupported key type 'ssh-ed25519'`）。ノードに入る porkadot のコマンドはサンドボックスの外で流す（段 1 ではユーザーの判断でそうした）
+
+### 8.11 kubelet の再起動の後の Longhorn の `no Pending workload pods`（longhorn/longhorn#8072 の形）
+
+kubelet は再起動の後、動いている Pod のボリュームにも `NodePublishVolume` をやり直す。Longhorn v1.11.2 の CSI は、その PVC を使う Pod に Running のほか **Succeeded（Completed）の Pod** があると、`Aborted: no Pending workload pods for volume … to be mounted: map[Running:[…] Succeeded:[…]]` で断り続ける（段 1 の chirico、oeilvert。`results/stage-1/chirico.md` §4.1）。Pod は動き続けるが、FailedMount のイベントと kubelet の error は自然には止まらない。
+
+- 本番では、backup の CronJob や手動の Job（`natsumi-backup*`、`deep-researcher-backup` など）が、動いている Pod と同じ PVC を使う Completed の Pod を残す
+- **Longhorn は別のノードの Succeeded の Pod も数える**（oeilvert の `natsumi-0` で、chirico に残った Completed の Pod が map に入った）
+- 止めるには、その PVC を使う Completed の Pod を消す（chirico では、消した後の kubelet の次のやり直しで通った）。Pod の削除なので、`infra-admin` のトークンが要る
+- **段 2 以降では、kubelet を再起動する前に、対象のノードの Running の Pod と同じ PVC を使う Completed / Succeeded の Pod（ノードは問わない）を洗い出して消す**（承認の上で。Job・CronJob・Running の Pod には触らない）。洗い出し方（読み取り）:
+
+  ```sh
+  kubectl --context fraction get pods -A -o json | jq -r --arg n <ノード> '
+    [.items[] | . as $p | .spec.volumes[]? | select(.persistentVolumeClaim)
+     | {pvc: ($p.metadata.namespace+"/"+.persistentVolumeClaim.claimName), pod: ($p.metadata.namespace+"/"+$p.metadata.name), phase: $p.status.phase, node: $p.spec.nodeName}]
+    | group_by(.pvc)[] | select(any(.phase=="Running" and .node==$n) and any(.phase=="Succeeded" or .phase=="Failed"))
+    | .[] | select(.phase!="Running") | [.pvc, .pod, .phase, .node] | @tsv'
+  ```
 
 ## 9. 記録
 
