@@ -23,7 +23,7 @@ porkadot 0.31.0 に入った PR は 3 つ。
 - porkadot#29: SSH。`connection.keys` の既定（`~/.ssh/id_rsa`、`~/.ssh/id_dsa`）を外し、ed25519 の鍵を読めるようにした（`ed25519`、`bcrypt_pbkdf` の gem）。known_hosts を net-ssh の parser で読む（SSHKit の parser は hashed の行の最初の 1 行しか返さなかった）。SSH の失敗を `SshError` の 1 つのメッセージで出す
 - porkadot#31: kubelet-serving-cert-approver を `:main`／`Always` から `0.12.1`／`IfNotPresent` に固定する
 
-この手順は dev クラスタ（porkadot-dev の KVM の VM 7 台、context `test`）で先に通してある（2026-10-19）。記録は porkadot-dev の `docs/k8s-upgrade/verification-0.31-rc.md`（以下「dev の記録」。2026-10-19 の時点ではブランチ `dev-porkadot-0-31-rc` の `a73e4cd`）。dev で分かったことのうち、段 1 と違うものは次のとおり。
+この手順は dev クラスタ（porkadot-dev の KVM の VM 7 台、context `test`）で先に通してある（2026-10-19）。記録は porkadot-dev の `docs/k8s-upgrade/verification-0.31-rc.md`（以下「dev の記録」。porkadot-dev の main（#9、`3cf5e96`））。dev で分かったことのうち、段 1 と違うものは次のとおり。
 
 - **1.31 の kubelet に上げると、そのノードのコンテナがすべて 1 回再起動する。** Pod は作り直されず（UID は同じ）、restartCount が 1 増える。kubelet は `Container <名前> definition changed, will be restarted` を出す。1.31 でコンテナの hash の計算が変わったため（kubernetes#124220。kubeadm の upgrade の文書にも「All containers are restarted after upgrade, because the container spec hash value is changed」とある）。段 1 では 1 つも再起動しなかった
 - **drain しないと、Longhorn のボリュームがアタッチされているノードでは、ボリュームが faulted になり、使っている Pod に 1〜2 分 I/O エラーが出る。** instance-manager のコンテナも再起動し、engine と replica のプロセスが落ちるため。Longhorn が自分で戻した（fsync したデータは失われなかった）が、アプリから見るとディスクが急に消えるのと同じ。**drain すれば、ボリュームは faulted にならず、Pod が普通に止まって別のノードで起き直すだけで済む**（書き込みの途切れ 19 秒）
