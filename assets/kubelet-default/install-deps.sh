@@ -53,7 +53,7 @@ install_bin() {
   fi
 }
 
-CNI_VERSION="v1.4.1"
+CNI_VERSION="v1.9.1"
 if [ "${FORCE}" = true ] || [ "$(cat ${CNI_VERSION_FILE} 2>/dev/null || true)" != "${CNI_VERSION}" ]; then
   CNI_TMP=$(mktemp -d)
   curl -fL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${architecture}-${CNI_VERSION}.tgz" \
@@ -65,7 +65,7 @@ else
   echo "CNI plugins ${CNI_VERSION} already installed"
 fi
 
-RELEASE="v1.31.14"
+RELEASE="v1.32.13"
 
 fetch_kubectl() {
   curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl -o $1/kubectl
@@ -85,7 +85,7 @@ fetch_etcdctl() {
 }
 install_bin etcdctl ${ETCD_VER} fetch_etcdctl
 
-CRICTL_VER="v1.31.1"
+CRICTL_VER="v1.32.0"
 fetch_crictl() {
   curl -fL https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz \
     -o $1/crictl.tar.gz
