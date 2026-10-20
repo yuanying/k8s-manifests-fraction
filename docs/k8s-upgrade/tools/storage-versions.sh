@@ -14,6 +14,9 @@
 #   prefixes.txt     the prefixes that were read, one etcdctl get per prefix
 #   objects.tsv      key, encoding, apiVersion, kind for every key (no values)
 #   expected.tsv     group, the version expected in storage, where it came from
+#   overrides.tsv    prefix, the version expected in storage, why (the
+#                    ResourceEncodingOverrides of the running kube-apiserver
+#                    that apply to built-in resources; may be empty)
 #   summary.tsv      prefix, encoding, apiVersion, kind, count, ok|OLD
 #   old.tsv          key, stored apiVersion, expected apiVersion (OLD only)
 #   crds.tsv         CRD, storage version, status.storedVersions, ok|MULTI
@@ -68,9 +71,25 @@ awk -F'\t' '{ print $1 "\t" $4 "\t" $5 "\t" (($5 == $4) ? "ok" : "MULTI") }' "$o
     else [.name, .preferredVersion.version, "discovery"] end | @tsv'
 } > "$out/expected.tsv"
 
+#    Built-in resources that kube-apiserver stores in an older version than
+#    the preferred one (ResourceEncodingOverrides in
+#    pkg/kubeapiserver/default_storage_factory_builder.go), keyed on the minor
+#    version of the server. Only the ones that can have objects in the cluster
+#    are listed. 1.33 stores the ServiceCIDR and IPAddress objects it creates
+#    as v1beta1 so that 1.32 can still read them; 1.34.0 drops the override.
+minor=$(kubectl --context "$ctx" version -o json | jq -r '.serverVersion.minor' | tr -dc '0-9')
+case $minor in
+  33)
+    printf '%s\t%s\t%s\n' \
+      /registry/ipaddresses/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33' \
+      /registry/servicecidrs/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33'
+    ;;
+esac > "$out/overrides.tsv"
+
 # 4. Compare. A custom resource key is /registry/<group>/<plural>/...;
-#    everything else is compared with the preferred version of the group in
-#    its stored apiVersion.
+#    a prefix in overrides.tsv is compared with the version there; everything
+#    else is compared with the preferred version of the group in its stored
+#    apiVersion.
 python3 -I - "$out" <<'EOF'
 import collections, sys
 out = sys.argv[1]
@@ -78,6 +97,10 @@ expected = {}
 for line in open(f"{out}/expected.tsv"):
     g, v, _ = line.rstrip("\n").split("\t")
     expected[g] = v
+overrides = {}
+for line in open(f"{out}/overrides.tsv"):
+    p, v, _ = line.rstrip("\n").split("\t")
+    overrides[p] = v
 crs = {}
 for line in open(f"{out}/crd-raw.tsv"):
     _, group, plural, storage, _ = line.rstrip("\n").split("\t")
@@ -93,7 +116,7 @@ for line in open(f"{out}/objects.tsv"):
     else:
         prefix = "/".join(parts[:4 if "." in parts[2] else 3]) + "/"
         group = av.rsplit("/", 1)[0] if "/" in av else ""
-        want = (f"{group}/" if group else "") + expected.get(group, "?")
+        want = overrides.get(prefix) or (f"{group}/" if group else "") + expected.get(group, "?")
     status = "ok" if av == want else "OLD"
     counts[(prefix, enc, av, kind, status)] += 1
     if status == "OLD":

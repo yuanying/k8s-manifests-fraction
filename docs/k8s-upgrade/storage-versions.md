@@ -1,7 +1,7 @@
 # etcd に保存されたオブジェクトの版（storage version）
 
 本番 `fraction` の etcd に、今の kube-apiserver が書く版と違う版で保存されたままのオブジェクトがあるかを調べた結果と、調べ方。
-書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5）。計画の扱いは `plan.md` §6.4。
+書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5。段 4 は書き直すものが無い。`runbook-stage-4.md` §2.5）。計画の扱いは `plan.md` §6.4。
 
 ## 1. なぜ見るか
 
@@ -76,11 +76,23 @@ kube-apiserver 1.31 は、組み込みのリソースを、そのグループの
 - これは discovery（`kubectl get --raw /apis`）の `preferredVersion` と同じなので、§4 のスクリプトは `preferredVersion` を期待値にしている。CRD のオブジェクト（§2.2 の注）だけは v1beta1 を期待値にする
 - 段が進んで、新しい版が storage の版になるリソース（`ResourceEncodingOverrides` から外れるもの）にオブジェクトができたら、`preferredVersion` と storage の版がずれることがある。そのときはこの節を読み直す
 
+### 3.1 1.33 の ServiceCIDR と IPAddress（段 4）
+
+1.33 で `MultiCIDRServiceAllocator` が GA になり既定で有効になった。1.33 の kube-apiserver は、起動のときに ServiceCIDR `kubernetes`（`--service-cluster-ip-range`。本番は `10.254.0.0/24,fd20:afc2:7c09::/108`）を作り、Service の ClusterIP ごとに IPAddress を作る（dual-stack の Service は 2 つ。本番は 2026-10-20 に 74 個の見込み）。
+
+- **この 2 種は `networking.k8s.io/v1beta1` で保存される。** 1.33 の `ResourceEncodingOverrides` に `ipaddresses` と `servicecidrs` の v1beta1 がある（`pkg/kubeapiserver/default_storage_factory_builder.go`、v1.33.13。「ipaddresses and servicecidrs are v1 in 1.33 / remove them in 1.34 when all apiserver understand the v1 version」）。1 つ前の 1.32 の apiserver が v1 を知らないので、1.32 に戻しても読めるようにするためである。discovery の `preferredVersion` は v1 なので、上の「ずれる」場合にあたる
+- **1.33 ではこれが正しい保存の形なので、書き直さない**（書き直しても v1beta1 で保存される）
+- §4 のスクリプトは、サーバーの版が 1.33 のときだけ、この 2 つの prefix の期待値を v1beta1 にする（`overrides.tsv`）。直す前のスクリプトは、dev の段 4 でこれを `OLD` と数えた（porkadot-dev の `docs/k8s-upgrade/verification-0.33-rc.md` の見つけたことの 4）
+- **1.34.0 のソースでは、この override が外れている**（同じファイル、v1.34.0）。1.34 の apiserver は v1 で書くので、1.33 の作った v1beta1 のオブジェクトは段 5 で本当に古い版になり、スクリプトは 1.34 では `OLD` と数える。段 5 の dev で確かめ、段 5 の書き直しの対象に入れるかを決める（`plan.md` §7 の段 5）
+- 1.33 の apiserver は、前の bitmap（`/registry/ranges/serviceips`）にも書き続ける（`DisableAllocatorDualWrite` は 1.33 で beta、既定で無効。`pkg/features/kube_features.go`）。1.32 に戻すと、1.32 の apiserver は bitmap だけを使い、ServiceCIDR と IPAddress は etcd に残って使われない（`runbook-stage-4.md` §7.2）
+
+ほかの 1.33 の override（`leasecandidates`、`mutatingadmissionpolicies`・`mutatingadmissionpolicybindings`、`clustertrustbundles`、`volumeattributesclasses`、`storagemigrations`、`devicetaintrules`）は、本番にオブジェクトが無い（2026-10-20 の `prefixes.txt` に prefix が無い）。どれかのオブジェクトができたら、スクリプトの `overrides.tsv` に足す。
+
 ## 4. 調べ方（`tools/`）
 
 | ファイル | 中身 |
 |---|---|
-| `tools/storage-versions.sh` | control-plane の 1 台で `etcdctl get --keys-only` で prefix の一覧を取り、prefix ごとに `etcdctl get --prefix -w json` を読み、`etcd-typemeta.py` で版を取り出して、期待値と比べる。`kubectl get crd` と `kubectl get --raw /apis` も読む |
+| `tools/storage-versions.sh` | control-plane の 1 台で `etcdctl get --keys-only` で prefix の一覧を取り、prefix ごとに `etcdctl get --prefix -w json` を読み、`etcd-typemeta.py` で版を取り出して、期待値と比べる。`kubectl get crd`、`kubectl get --raw /apis`、`kubectl version`（サーバーの版で §3.1 の override を決める）も読む |
 | `tools/etcd-typemeta.py` | `etcdctl get -w json` の出力から、キーごとに値の形（protobuf / json / encrypted）と apiVersion・kind だけを出す。値は出さない |
 
 ```sh
@@ -91,8 +103,9 @@ docs/k8s-upgrade/tools/storage-versions.sh /tmp/storage-versions-$(date -u +%Y%m
 
 - 読み取りだけ（`etcdctl get` と `kubectl get`）。SSH は `ubuntu@192.168.1.111`（`ETCD_HOST` で変えられる）、kubectl は `--context fraction`（`fraction-auditor` で足りる）。サンドボックスの中で流せる
 - etcd の全範囲を 1 回で読むと Raspberry Pi の etcd に重いので、prefix ごとに 1 秒おいて読む（2026-10-19 は 1 分 36 秒）
-- 出力: `summary.tsv`（prefix、値の形、版、kind、数、`ok` / `OLD`）、`old.tsv`（古い版のキーと期待値）、`crds.tsv`（CRD、storage の版、`storedVersions`、`ok` / `MULTI`）、`objects.tsv`（全キーの版）。**値は書かない**が、キーには Secret の名前も入るので、記録に写すのは prefix・キー・版だけにする
-- `OLD: 0` と `CRDs with more than one stored version: 0` が、書き直しの後と各段の完了の確認の合格基準（各段の手順書 §6）
+- 出力: `summary.tsv`（prefix、値の形、版、kind、数、`ok` / `OLD`）、`old.tsv`（古い版のキーと期待値）、`crds.tsv`（CRD、storage の版、`storedVersions`、`ok` / `MULTI`）、`objects.tsv`（全キーの版）、`overrides.tsv`（そのサーバーの版で `preferredVersion` の代わりに使った期待値。1.33 では `ipaddresses`・`servicecidrs` の 2 行、ほかの版では空）。**値は書かない**が、キーには Secret の名前も入るので、記録に写すのは prefix・キー・版だけにする
+- `OLD: 0` と `CRDs with more than one stored version: 0` が、書き直しの後と各段の完了の確認の合格基準（各段の手順書 §6）。§3.1 の override をスクリプトの期待値に入れたので、段 4（1.33）でもこの基準のまま使える
+- 期待値はそのとき VIP の先にいる apiserver の版で決まる。`install kubernetes` の rollout の途中（版が混ざる間）には流さない
 
 ## 5. 書き直し方と、kube-storage-version-migrator を使わない理由
 
