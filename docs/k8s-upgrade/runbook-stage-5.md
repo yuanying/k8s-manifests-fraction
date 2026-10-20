@@ -79,7 +79,7 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 
 段 4 の手順書 §1.2 と同じ（確認は `fraction-auditor`、変更系は `infra-admin` の 1 時間のトークンと `kubectl-admin`）。
 
-**段 5 で `infra-admin` のトークンを使うのは、§3.4 の IPAddress の書き直し、`netcheck.sh`・§1.9 の NetworkPolicy の確認、§8.12 の Pod の削除だけ**（cordon・drain・Longhorn の設定の切り替えは無い）。トークンのファイル名は `/tmp/k8u-stage5-admin-token` にする。
+**段 5 で `infra-admin` のトークンを使うのは、§3.4 の IPAddress の書き直し、§1.9 の NetworkPolicy の確認、§8.12 の Pod の削除だけ**（`netcheck.sh` はトークンを使わず、cnidaria の手順書の `kadmin.sh` で sops の admin の kubeconfig を使う。段 4 と同じ）（cordon・drain・Longhorn の設定の切り替えは無い）。トークンのファイル名は `/tmp/k8u-stage5-admin-token` にする。
 
 ### 1.3 SSH
 
@@ -183,7 +183,7 @@ gh api repos/etcd-io/etcd/releases --jq '.[] | select(.tag_name|test("^v3\\.6\\.
 | 9 | etcd の更新 | control-plane の `install kubelet` で 1 台ずつ 3.6.15 にする。**3 台を続けて流し、混在の時間を短くする**（dev では .113 から .111 まで約 6 分）。各台の後に 3/3 healthy と版を見る（§4.4） | dev の記録、etcd の公式の文書（Upgrade etcd from v3.5 to v3.6） |
 | 10 | v2store | 上げる前に、3.5.34 の etcdutl で各メンバーの `check v2store` を流す。`No custom content found in both v2store and WAL records.` でなければ止める（§2.9） | etcd の公式の文書、dev の記録 |
 | 11 | etcd のバックアップ | 3 回取る: 段の前（`install kubernetes` の前。§2.4）、control-plane の `install kubelet` の前（§4.2）、全台 3.6 の後（3.6 の etcdctl で。§4.5） | 計画 §6.1 の 5、dev の記録 |
-| 12 | storage version | `install kubernetes` の前に `OLD: 0` を確かめる。後で、1.33 の apiserver が v1beta1 で保存した IPAddress を v1 に書き直す（§3.4。段の開始の承認の範囲の ✋）。ServiceCIDR は 1.34 の apiserver が自分で v1 に書き直す見込み | dev の記録、計画 §6.4 |
+| 12 | storage version | `install kubernetes` の前に `OLD: 0` を確かめる。後で、1.33 の apiserver が v1beta1 で保存した IPAddress を v1 に書き直す（§3.4。段の開始の承認の範囲の ✋）。ServiceCIDR は、dev では 1.34 の apiserver が自分で v1 に書き直したが、本番では書き直さなかったので一緒に書き直した | dev の記録、計画 §6.4、本番の段 5 |
 | 13 | Completed / Succeeded の Pod | Running の Pod と同じ Longhorn の PVC を使うものは、`install kubelet` の前に消す（§8.12。段の開始の承認の範囲の ✋。§0） | 段 3 の本番 |
 | 14 | v1 Endpoints の warning | 段の更新を止める理由にしない。出どころを記録する（段 4 の手順書 §8.15） | 段 4 の本番 |
 | 15 | leader election を使う controller の 1 回の再起動と、gated の LoadBalancer の 1 回の途切れ | 許容する。記録して、Running に戻ったことを確かめる（§8.8） | 段 C、ユーザーの判断 |
@@ -219,7 +219,7 @@ for h in 192.168.1.111 192.168.1.112; do
 done
 ```
 
-- 読み取りだけ。`unset LC_ALL` してから流す。§4 の前（§4.2 の ✋✋ の後）に始め、§4.5 の後に止める（`kill %1 %2`。ノードの側の while も ssh の切断で止まる）
+- 読み取りだけ。`unset LC_ALL` してから流す。§4 の前（§4.2 の ✋✋ の後）に始め、§4.5 の後に止める（`kill %1 %2`）。**`ssh -n` ではノードの側の while は ssh を止めても残る**（本番の段 5）。止めた後に各ノードで `pgrep -af 'while :'` を見て、残っていれば PID を確かめて kill する
 - 合格の基準にはしない。unhealthy が出た時刻を、`install kubelet` の etcd の起き直し（§4.4 の 5）と突き合わせて記録する。起き直す台が数秒 unhealthy になるのは想定どおり（dev では 2〜5 秒）。**ほかの 2 台も unhealthy になり、VIP が止まるとき**は §8.13 を見る
 - その台の etcdctl が 3.6.15 に替わっても、そのまま流れる
 
@@ -243,10 +243,10 @@ ls -l ./backup/
 `install kubernetes` の前に書き直すものは無い（段 3 で済み、段 4 の完了の確認でも `OLD: 0`）。
 
 1. `install kubernetes` の前（§2.2 の 20）: `tools/storage-versions.sh` が `OLD: 0`、`CRDs with more than one stored version: 0`、`overrides.tsv` が 1.33 の 2 行。**違えば止める**
-2. `install kubernetes` の後（§3.3 の 16）: 1.34 の apiserver は `ipaddresses`・`servicecidrs` の v1beta1 の override を外している（`pkg/kubeapiserver/default_storage_factory_builder.go`、v1.34.12 で確かめた。1.34 の override は `leasecandidates`、`mutatingadmissionpolicies`・`…bindings`、`clustertrustbundles`、`podcertificaterequests`、`volumeattributesclasses`、`storagemigrations`、`devicetaintrules` で、どれも本番にオブジェクトが無い）。スクリプトの `overrides.tsv` は空になり、1.33 の apiserver が v1beta1 で保存した **IPAddress が `OLD` に出る**（数は §2.2 の 24 の ClusterIP の数。2026-10-20 は 74）。**ServiceCIDR は、1.34 の apiserver（servicecidr の controller が status を書く）が入るとすぐ v1 で書き直す見込み**（dev の見つけたことの 3）
+2. `install kubernetes` の後（§3.3 の 16）: 1.34 の apiserver は `ipaddresses`・`servicecidrs` の v1beta1 の override を外している（`pkg/kubeapiserver/default_storage_factory_builder.go`、v1.34.12 で確かめた。1.34 の override は `leasecandidates`、`mutatingadmissionpolicies`・`…bindings`、`clustertrustbundles`、`podcertificaterequests`、`volumeattributesclasses`、`storagemigrations`、`devicetaintrules` で、どれも本番にオブジェクトが無い）。スクリプトの `overrides.tsv` は空になり、1.33 の apiserver が v1beta1 で保存した **IPAddress が `OLD` に出る**（数は §2.2 の 24 の ClusterIP の数。2026-10-20 は 74）。**ServiceCIDR は、dev では 1.34 の apiserver（servicecidr の controller が status を書く）が入るとすぐ v1 で書き直したが**（dev の見つけたことの 3）、**本番では書き直さず `OLD` のまま残った**。そのときは §3.4 で IPAddress と一緒に書き直す（本番の段 5 はそうした。`results/stage-5/control-plane.md`）
 3. §3.4 で IPAddress を v1 に書き直し、`OLD: 0` に戻す。**control-plane の `install kubelet`（✋✋）の前に済ませる**（書き直しは 1.34 の apiserver が要るので、1.33 に戻すときに読めなくなることは無い: 1.33 の apiserver は v1 を知っている。§7.2）
 
-1.34 の apiserver は、FlowSchema の `endpoint-controller`・`workload-leader-election` の spec を自分の値に書き直すことがある（dev で起きた。どちらもすでに v1 で、generation が増えるだけ）。
+1.34 の apiserver は、FlowSchema の `endpoint-controller`・`workload-leader-election` を消す。v1.34.12 の suggested の FlowSchema（`staging/src/k8s.io/apiserver/pkg/apis/flowcontrol/bootstrap/default.go` の `SuggestedFlowSchemas`）からこの 2 つが外れ、apiserver は `apf.kubernetes.io/autoupdate-spec: "true"` の付いた suggested のオブジェクトで自分の一覧に無いものを消すため。FlowSchema は 13 個から 11 個になる（dev も本番も同じ）。
 
 ### 2.6 render の差分（この手順書と同じ PR）
 
@@ -383,7 +383,7 @@ kubectl --context fraction version
 | 16 | storage version | `tools/storage-versions.sh` で、`overrides.tsv` が空、`OLD` が **`/registry/ipaddresses/` の `networking.k8s.io/v1beta1` だけ**（数は 17 の IPAddress の数）。`/registry/servicecidrs/` は `networking.k8s.io/v1` の `ok`（1.34 の apiserver が書き直したもの）。ほかの `OLD` と CRD の `MULTI` が無い。ServiceCIDR が v1beta1 の `OLD` のまま出ていれば、§3.4 で一緒に書き直す |
 | 17 | ServiceCIDR と IPAddress | `servicecidrs` に `kubernetes` が 1 つで Ready、CIDRS が `10.254.0.0/24,fd20:afc2:7c09::/108`。IPAddress の数が §2.2 の 24 の ClusterIP の数（2026-10-20 は 74）。1.34 の apiserver への入れ替えで `ClusterIPNotAllocated` の event は出ない見込み（1.33 で移行が済んでいる）。出たら数と時刻を記録する |
 | 18 | v1 Endpoints の warning | 段 4 の手順書 §3.3 の 18 と同じ（記録だけ。`removed_release` が `1.34` 以前のものが出ていないこと） |
-| 19 | FlowSchema | `kubectl --context fraction get flowschemas -o custom-columns=N:.metadata.name,GEN:.metadata.generation` を §2.2 と比べる。`endpoint-controller`・`workload-leader-election` の generation が増えることがある（1.34 の apiserver の既定値の更新。§2.5）。ほかのものの generation が変わっていれば記録する |
+| 19 | FlowSchema | `kubectl --context fraction get flowschemas -o custom-columns=N:.metadata.name,GEN:.metadata.generation` を §2.2 と比べる。`endpoint-controller`・`workload-leader-election` が消え、13 個から 11 個になる（1.34 の apiserver の既定の変更。§2.5）。残りの 11 個の generation が変わっていれば記録する |
 
 - `install kubernetes` の出力の `configured` に、マニフェストの変わらない `poddisruptionbudget.policy/kube-controller-manager`・`kube-scheduler`、`validatingwebhookconfiguration…/metallb-webhook-configuration` が出るのは前から（`docs/cni/cnidaria-no-plugin-copy.md` §2）。generation が変わらなければ想定内
 - 入れ替わりのとき、古い 1.33 の KCM の Pod が 1 つ `Error` で終わることがある（dev。すぐに消える）
@@ -597,7 +597,7 @@ BUNDLE_GEMFILE=$P_OLD/Gemfile bundle exec $P_OLD/exe/porkadot install kubernetes
 
 - apiserver・KCM・scheduler・kube-proxy が v1.33.13 に戻る。0.33.1 は全体を同時に apply するが、**1.34 → 1.33 の向きではデッドロックしない**（1.33 の scheduler は 1.34 の apiserver が返す API だけを使う。dev の戻しで確かめた）。rc 1（`connection refused`）なら rollout を待って流し直す（dev の戻しでも 1 回目 rc 1、流し直して rc 0）
 - **IPAddress と ServiceCIDR**: 1.33 の apiserver は、v1 で保存されたものも読める。§3.4 で書き直した後に戻すと、`tools/storage-versions.sh`（1.33 の期待値は v1beta1）は書き直したもの（v1）を `OLD` と数える。dev の戻し（IPAddress の書き直しの前）では、1.33 の apiserver が ServiceCIDR を v1beta1 に書き戻した。IPAddress は、書かれるまで v1 のまま残る見込み（確かめていない）。読めるので害は無い。記録して、ほかの `OLD` が無いことを見る
-- 1.34 が書いた FlowSchema の 2 つ（`endpoint-controller`、`workload-leader-election`）は v1 のまま残る（1.33 でも v1 は今の版。dev）
+- 1.34 の apiserver が消した FlowSchema の 2 つ（`endpoint-controller`、`workload-leader-election`）は、1.33 の apiserver が suggested のものとして作り直す見込み（確かめていない）。戻した後に FlowSchema が 13 個あることを見る
 - §3.3 と同じ確認を、版を読み替えて行う
 
 ### 7.3 control-plane の kubelet の途中（etcd が混在） ✋
