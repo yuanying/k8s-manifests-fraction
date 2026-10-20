@@ -79,7 +79,7 @@ dev で確かめていないものは次のとおり。**ここを本番で特�
 
 段 4 の手順書 §1.2 と同じ（確認は `fraction-auditor`、変更系は `infra-admin` の 1 時間のトークンと `kubectl-admin`）。
 
-**段 5 で `infra-admin` のトークンを使うのは、§3.4 の IPAddress の書き直し、`netcheck.sh`・§1.9 の NetworkPolicy の確認、§8.12 の Pod の削除だけ**（cordon・drain・Longhorn の設定の切り替えは無い）。トークンのファイル名は `/tmp/k8u-stage5-admin-token` にする。
+**段 5 で `infra-admin` のトークンを使うのは、§3.4 の IPAddress の書き直し、§1.9 の NetworkPolicy の確認、§8.12 の Pod の削除だけ**（`netcheck.sh` はトークンを使わず、cnidaria の手順書の `kadmin.sh` で sops の admin の kubeconfig を使う。段 4 と同じ）（cordon・drain・Longhorn の設定の切り替えは無い）。トークンのファイル名は `/tmp/k8u-stage5-admin-token` にする。
 
 ### 1.3 SSH
 
@@ -219,7 +219,7 @@ for h in 192.168.1.111 192.168.1.112; do
 done
 ```
 
-- 読み取りだけ。`unset LC_ALL` してから流す。§4 の前（§4.2 の ✋✋ の後）に始め、§4.5 の後に止める（`kill %1 %2`。ノードの側の while も ssh の切断で止まる）
+- 読み取りだけ。`unset LC_ALL` してから流す。§4 の前（§4.2 の ✋✋ の後）に始め、§4.5 の後に止める（`kill %1 %2`）。**`ssh -n` ではノードの側の while は ssh を止めても残る**（本番の段 5）。止めた後に各ノードで `pgrep -af 'while :'` を見て、残っていれば PID を確かめて kill する
 - 合格の基準にはしない。unhealthy が出た時刻を、`install kubelet` の etcd の起き直し（§4.4 の 5）と突き合わせて記録する。起き直す台が数秒 unhealthy になるのは想定どおり（dev では 2〜5 秒）。**ほかの 2 台も unhealthy になり、VIP が止まるとき**は §8.13 を見る
 - その台の etcdctl が 3.6.15 に替わっても、そのまま流れる
 
