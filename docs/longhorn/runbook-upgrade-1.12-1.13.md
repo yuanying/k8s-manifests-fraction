@@ -67,6 +67,8 @@ ADMIN_TOKEN=$(cat /tmp/lh-upg-admin-token)
 kubectl --context fraction --token="$ADMIN_TOKEN" auth can-i patch volumes.longhorn.io -n longhorn-system   # yes
 ```
 
+初回のバックアップ（§4.5）は 3 時間を超えうるので、その後の手順の前に期限を確かめ、切れていれば発行し直す（1 回目は 17:15 に切れ、system backup の前に発行し直した）。
+
 トークンを使うのは、§4.2 の diff と dry-run、§4.5 のバックアップ、§4.7 の Prometheus、§4.8 の apply、§4.9 の `pvcheck.sh`、§4.10 のエンジンの更新、§4.11 の engine image の削除だけ。
 
 ### 1.3 SSH
@@ -328,7 +330,7 @@ done | tee -a $D/probe.log &
 
 dev では確かめていない（BackupTarget が無い）。形は、Longhorn の system backup の controller がボリュームのバックアップを作るときと同じ（longhorn-manager v1.11.2 の `controller/system_backup_controller.go` の `createVolumeSnapshot`・`createVolumeBackupFromSnapshot`。Snapshot の CR を `createSnapshot: true` で作り、`readyToUse` になったら、`backup-target`・`backup-volume` の label を付けた Backup の CR を `snapshotName` で作る）。**最初に 1 本（いちばん小さい `data-calendar-keeper-0`）だけ流して形を確かめてから、残りを流す。**
 
-**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので、線速でも約 50 分、実際は 1〜2 時間の見込み（確かめていない）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は差分なので短い。braque の空き（9.4T）は足りる。
+**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので線速でも約 50 分だが、**1 回目の実際は約 22 MB/s で、16 本に約 4 時間 15 分かかった**（`fs/h2` だけで 2 時間 30 分。`results/upgrade-1.12-1.13/1.12.1.md` §3）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は差分なので短い。braque の空き（9.4T）は足りる。
 
 1. 名前を決める（回ごとに別にする）。
 
