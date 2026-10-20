@@ -303,6 +303,9 @@ ls -l ./backup/
 
 段 4 では speaker のコンテナが再起動しない見込みなので、告知は移らない見込み（段 3 の本番でも移らなかった）。
 
+- 本番の段 4 では、chirico の `install kubelet` の間に gated-v4（`externalTrafficPolicy: Local`）の告知が 1 秒ほど oeilvert へ移って chirico に戻った（監視の FAIL は 0。`results/stage-4/chirico.md` §4 の注）。告知が戻ったことを記録する
+- 「最後の `serviceAnnounced`」を時刻で並べて読むとき、同じ秒に `serviceWithdrawn`（`notOwner`）と `serviceAnnounced` が並ぶことがある。そのときは時刻で並べ替えず、speaker のログの順で読む（段 4 の chirico では、時刻と文字の順で並べると取り下げが最後に見えたが、ログの順では告知が最後だった）
+
 ## 3. control-plane のマニフェストを上げる（`install kubernetes`）
 
 ### 3.1 事前確認
@@ -342,7 +345,7 @@ kubectl --context fraction version
 | # | 確認 | 合格基準 |
 |---|---|---|
 | 1〜12 | 段 1 の手順書 §3.3 の 1〜12 | 同じ。Server が v1.33.13、apiserver・KCM・scheduler・kube-proxy が v1.33.13。Node は 8 台 Ready で kubelet は v1.32.13 のまま（apiserver 1.33 と kubelet 1.32 は skew policy の範囲）。DaemonSet `kube-apiserver` の generation が 1 つ増える（段 3 の後は 26） |
-| 13 | CoreDNS | Deployment `coredns` が 2/2、Pod のイメージが `registry.k8s.io/coredns/coredns:v1.12.4`、2 つの Pod のログの最初が `CoreDNS-1.12.4` で、ほかにエラーの行が無い。generation が 1 つ増える（段 3 の後は 10）。名前の答えは下の表（§2.2 の 23 と同じ問い合わせ） |
+| 13 | CoreDNS | Deployment `coredns` が 2/2、Pod のイメージが `registry.k8s.io/coredns/coredns:v1.12.4`、2 つの Pod のログに `CoreDNS-1.12.4` があり（`maxprocs`・`.:53`・設定の SHA512 の行の後。v1.11.4 と同じ並び）、ほかにエラーの行が無い。generation が 1 つ増える（段 3 の後は 10）。名前の答えは下の表（§2.2 の 23 と同じ問い合わせ） |
 | 14 | approver | `kubelet-serving-cert-approver` が `0.12.1` のまま 1/1。generation が変わらない |
 | 15 | CSR | `kubectl --context fraction get csr` に新しい CSR が無い（出ていれば、kubelet の serving のものは approver が Approved,Issued にしていること） |
 | 16 | storage version | `tools/storage-versions.sh` が `OLD: 0`、`CRDs with more than one stored version: 0`。`overrides.tsv` が 2 行（`/registry/ipaddresses/`、`/registry/servicecidrs/`）で、`summary.tsv` にこの 2 つの prefix が `networking.k8s.io/v1beta1` の `ok` で出る（IPAddress は 17 の数、ServiceCIDR は 1）。2 つのほかに増えた prefix が無い（Event などの数は変わってよい） |
@@ -372,10 +375,12 @@ q -x <fs/h2 の Endpoint の Pod の IP（v4 と v6）>
 | PTR `10.254.0.1`、`fd20:afc2:7c09::521` | `kubernetes.default.svc.cluster.local.`、`h2.fs.svc.cluster.local.` | 同じ |
 | PTR の、hostname の無い Endpoint の Pod の IP（kube-dns、`fs/h2` の v4・v6） | NXDOMAIN（coredns#6898） | **`<IP をハイフンでつないだもの>.kube-dns.kube-system.svc.cluster.local.`、`….h2.fs.svc.cluster.local.`**（dev の記録の見つけたことの 3） |
 
+- 1 つの Pod を複数の Service が Endpoint に持つときは、Service ごとの名前が返る（本番の段 4 では、CoreDNS の Pod に `kube-prometheus-coredns.kube-system` の名前も、`fs/h2` の v6 に `h2-sshd.fs` の名前も返った。`results/stage-4/control-plane.md` §3）
 - PTR の Pod の IP の答えが NXDOMAIN のままでも、ほかが合格なら止めない（v1.11.4 と同じ振る舞いで、本番で困っていない）。記録して報告する
 - 作業端末の `dig` の `socket(): Operation not permitted` は、サンドボックスが IPv6 の socket を塞いだもので、`-4` の問い合わせの結果には関係ない
 - LAN から Service の IP と `fraction.cluster` の名前が引けることは、braque の確認（§5.4）でも見る
 - rollout が途中で 30 秒ほど止まって見えることがある（controller-manager のリーダーの交代。段 1 の手順書 §3.3 の注）
+- apiserver の rollout が .111 から始まると（§8.3）、古い apiserver が止まりかける間に、controller-manager の `FailedToUpdateEndpoint`・`FailedToUpdateEndpointSlices`、DaemonSet `kube-proxy` の `FailedCreate`（どれも `dial tcp 10.254.0.1:443: connect: connection refused`）と、新しい controller-manager の `FailedMount`（`failed to sync secret cache`）が 1 回ずつ出る（本番の段 4。`results/stage-4/control-plane.md` §7）。続かず、Pod が再起動しなければ想定内
 - ここで問題があれば、kubelet にまだ触っていないので、§7.2 で control-plane だけを戻せる
 
 ## 4. control-plane の kubelet を上げる（192.168.1.113 → .112 → .111）
@@ -407,7 +412,7 @@ q -x <fs/h2 の Endpoint の Pod の IP（v4 と v6）>
 | 2 | バイナリ | 向き先が `kubelet-v1.33.13`、`kubectl-v1.33.13`、`crictl-v1.33.0`、`etcdctl-3.5.34`（変わらない）。CNI の印と 4 つのプラグインは `v1.9.1` のまま。前の版のファイル（`kubelet-v1.32.13` など）も残っている（§7 の戻しで使う） |
 | 7 | Pod の再起動 | **差分は `kube-system/etcd-<IP>` の UID だけ**（restartCount は同じ）。ほかに UID・restartCount が変わったものがあれば止める |
 | 8 | iscsid | MainPID と ActiveEnterTimestamp が同じ（§2.7 の表）。PID が変わっていたら止める |
-| 11 | kubelet のログ | 段 3 の手順書 §4.3 の 11 のものに加え、起動の直後の `object "<ns>"/"kube-root-ca.crt" not registered`（kubelet の informer がそろう前の 1 回。その Pod は再起動しない）と、止まる前の古い kubelet の `missing content for CA bundle "client-ca-bundle::/etc/kubernetes/pki/ca.crt"`（1 回）は想定内（dev の記録の見つけたことの 7）。続くエラーが無い |
+| 11 | kubelet のログ | 段 3 の手順書 §4.3 の 11 のものに加え、起動の直後の `object "<ns>"/"kube-root-ca.crt" not registered`（kubelet の informer がそろう前の 1 回。その Pod は再起動しない。本番の段 4 では control-plane の 3 台とも、speaker の `"metallb-system"/"memberlist"`・`"metallb-excludel2"` でも同じ形が出た）と、止まる前の古い kubelet の `missing content for CA bundle "client-ca-bundle::/etc/kubernetes/pki/ca.crt"`（1 回）は想定内（dev の記録の見つけたことの 7）。続くエラーが無い |
 
 次の 1 台へ進む条件も段 3 の手順書 §4.3 と同じ（1〜15 がすべて合格、全 8 台 Ready、etcd 3/3 healthy で raft index がそろう、Running / Completed 以外の Pod がベースラインから増えていない）。
 
@@ -448,7 +453,7 @@ q -x <fs/h2 の Endpoint の Pod の IP（v4 と v6）>
 | 1 | Node | VERSION が v1.33.13 |
 | 2 | バイナリ | 向き先が `kubelet-v1.33.13`、`kubectl-v1.33.13`、`crictl-v1.33.0`。CNI の印と 4 つのプラグインは `v1.9.1` のまま。`kubelet-v1.32.13` なども残っている |
 | 3 | iscsid | **MainPID と ActiveEnterTimestamp が同じ**（duchamp も、段 3 で起動した iscsid が動いているので同じであること）。PID が変わっていたら止める |
-| 6 | Longhorn | 段 3 の手順書と同じ。kubelet の再起動の数秒の間の Longhorn の node のイベント `Node <ノード> is down: manager pod ... is not running`・`Waiting for disk ... to be ready / schedulable` は想定内（段 3 の本番の 4 台で出た） |
+| 6 | Longhorn | 段 3 の手順書と同じ。kubelet の再起動の数秒の間の Longhorn の node のイベント `Node <ノード> is down: manager pod ... is not running`・`Waiting for disk ... to be ready / schedulable` は想定内（段 3 の本番の 4 台、段 4 の本番の pablo・oeilvert・chirico で出た）。同じ間に、そのノードの Longhorn の orphan（古い replica のデータの置き場所）の CR が `OrphanCleanupCompleted` で片付けられ、同じ名前で作り直されることがある（段 4 の oeilvert で 3 つ。`orphan-resource-auto-deletion` が空なのでデータは消えない。`results/stage-4/oeilvert.md` §4 の注）。今の replica とボリュームに変化が無ければ想定内 |
 | 7 | Pod の再起動 | **差分が無い**（名前・UID・restartCount が同じ）。1 つでもコンテナの再起動があれば、ここで止めて報告する（§2.1 の 3） |
 | 9 | kubelet のログ | §4.3 の 11 と同じものは想定内。続くエラーが無い。Longhorn のボリュームの `FailedMount`（`no Pending workload pods`）が続いていない（§8.12） |
 
@@ -578,6 +583,7 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 段 3 の手順書 §8.3 と同じ。apiserver の DaemonSet の rollout が .111 から始まると、.111 の上で流れている `kubectl apply` の接続先が消え、残りの apply が rc 1 になる。rollout の完了を待って流し直すと rc 0 になり、2 回目の rollout は起きない。
 
 - 0.32 の rc（dev）で rc 1、本番の段 3 と 0.33 の rc（dev）では rc 0 だった。どちらの rc 0 も rollout が .112 から始まり、.111 の入れ替えは apply が終わった後だった。rollout の始まるノードによるので、段 4 でも起こりうる
+- **本番の段 4（2026-10-20）は rc 1 だった。** apiserver の rollout が .111 から始まり（.111 → .112 → .113）、MetalLB の `L2Advertisement` と `ValidatingWebhookConfiguration` の apply が `connection refused` になった。§3.2 のとおり rollout の完了を待って流し直し、rc 0、generation は変わらなかった（`results/stage-4/control-plane.md` §2）
 
 ### 8.4 1.33 の kubelet ではコンテナが再起動しない
 
@@ -623,6 +629,7 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 - control-plane 自身が Endpoints を使い続ける（kube-controller-manager の endpoints controller が PUT し、apiserver が `default/kubernetes` の Endpoints を GET する）ので、このメトリクスは段 4 の後は必ず出て、0 にならない（dev の記録の見つけたことの 5）。段 3 の手順書 §2.2 の 21 の「ベースラインから増えていない」は、段 4 からは `endpoints` を除いて見る
 - warning は振る舞いを変えない。出どころは §6 で記録し、段の更新は止めない
 - dev では longhorn-manager v1.11.2 の 3 つが、`longhorn-system` の Endpoints の watch を張り直すたびに 2 行出した（19 分で 6 行ずつ）。本番の longhorn-manager も 4 つとも同じ形で出す見込み
+- **本番の段 4 では**、longhorn-manager v1.11.2 の 4 つ（40 分で 11〜14 行）、prometheus-operator v0.90.1（24 行）、Prometheus v3.11.3 の 2 つ（1.33 の apiserver に替わった直後に 1 行ずつ）が出した（`results/stage-4/summary.md` §2.3）
 
 ## 9. 記録
 
