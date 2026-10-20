@@ -13,7 +13,8 @@
 # --dry-run (server-side dry run, admission webhooks included). Before writing
 # it checks that the volume is attached and healthy, or detached; that the
 # engine image is deployed; and that the number of Replica CRs equals
-# spec.numberOfReplicas. Then it prints every change of the volume's state
+# spec.numberOfReplicas (if not, it lists the Replica CRs and stops; a
+# failed replica waiting for staleReplicaTimeout makes one too many). Then it prints every change of the volume's state
 # until status.currentImage is the new image, the Replica CRs are back to
 # spec.numberOfReplicas and an attached volume is healthy again.
 #
@@ -57,7 +58,15 @@ ei=$($KUBECTL -n "$NS" get engineimages.longhorn.io -o json |
     jq -r --arg i "$img" '[.items[] | select(.spec.image == $i) | .status.state] | first // "missing"')
 [ "$ei" = deployed ] || die "engine image $img is not deployed ($ei)"
 n=$(replica_crs)
-[ "$n" = "$reps" ] || die "$vol has $n Replica CRs, numberOfReplicas is $reps"
+if [ "$n" != "$reps" ]; then
+    # Usually a failed replica that Longhorn has not removed yet (it does after
+    # staleReplicaTimeout). Show them; the runbook says to wait, not to go on.
+    echo "Replica CRs of $vol (name, node, state, failedAt):" >&2
+    $KUBECTL -n "$NS" get replicas.longhorn.io -l "longhornvolume=$vol" -o json |
+        jq -r '.items[] | [.metadata.name, .spec.nodeID, (.status.currentState // "-"),
+               (.spec.failedAt // "" | if . == "" then "-" else . end)] | @tsv' >&2
+    die "$vol has $n Replica CRs, numberOfReplicas is $reps"
+fi
 
 patch="{\"spec\":{\"image\":\"$img\"}}"
 echo "$(now) $vol $st/$rob node=$node $cur -> $img ($mode)"

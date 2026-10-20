@@ -125,10 +125,10 @@ gh api repos/longhorn/longhorn/releases --jq '.[] | select(.tag_name|test("^v1\\
 |---|---|---|
 | `tools/lh-state.sh <dir>` | しない | ボリューム・replica・エンジン・instance-manager・engine image・Pod（UID・restart）・Setting・CRD の `storedVersions`・NetworkPolicy の selector・orphan などを TSV に保存し、要約を出す。前と後のディレクトリを `diff` で比べる |
 | `tools/lh-watch.sh` | しない | 2 秒ごとに読み、変わったものだけを出す（ボリュームの state/robustness・ノード・エンジンの版、replica の状態の数、instance-manager の版と状態の数、Ready でない Pod） |
-| `tools/engine-upgrade.sh <volume> <image> [--dry-run]` | **する**（Volume の `spec.image`） | 1 本のエンジンを更新して、終わるまで待つ。attached なら healthy、detached ならそのまま、であることを確かめてから patch し、`status.currentImage` が新しい版になり、Replica の CR の数が `numberOfReplicas` に戻り、attached なら healthy に戻るまで待つ。faulted になったら止まる（rc 1）。600 秒で timeout（rc 2） |
+| `tools/engine-upgrade.sh <volume> <image> [--dry-run]` | **する**（Volume の `spec.image`） | 1 本のエンジンを更新して、終わるまで待つ。attached なら healthy、detached ならそのまま、であることを確かめてから patch し、`status.currentImage` が新しい版になり、Replica の CR の数が `numberOfReplicas` に戻り、attached なら healthy に戻るまで待つ。faulted になったら止まる（rc 1）。600 秒で timeout（rc 2）。**前の時点で Replica の CR の数が `numberOfReplicas` と違えば、CR の一覧（名前・ノード・状態・`failedAt`）を出して書き込まずに断る**（rc 1。§9.5） |
 | `tools/pvcheck.sh` と `tools/pvcheck.yaml` | **する**（一時的な名前空間 `lh-pvcheck`） | silver（replica 2）の RWO と RWX の PVC を作り、ノードを指定した Pod で両方に書いて md5 を確かめ、別のノードに移して確かめ直し、名前空間ごと消す。`up`・`move`・`status`・`down`・`dry-run` |
 
-- `engine-upgrade.sh` は、偽の `kubectl` で 11 の場合（live、offline、degraded を断る、faulted で止まる、読み取りの一時的な失敗（1 回と 2 回続けて）、dry-run、同じ版、不明な引数、無い engine image、timeout）を確かめた。本番では、配られていない engine image（v1.12.1）を渡して patch の前で断ることだけを確かめた（読み取りだけ）
+- `engine-upgrade.sh` は、偽の `kubectl` で 12 の場合（live、offline、degraded を断る、`failedAt` の付いた余分な replica があると一覧を出して断る、faulted で止まる、読み取りの一時的な失敗（1 回と 2 回続けて）、dry-run、同じ版、不明な引数、無い engine image、timeout）を確かめた。本番では、配られていない engine image（v1.12.1）を渡して patch の前で断ることだけを確かめた（読み取りだけ）
 - `lh-state.sh`・`lh-watch.sh` は本番で流した（2026-10-20。§2 の値はその出力）
 - `pvcheck.sh dry-run` は本番で通した（`--dry-run=client`）。`up` 以降は流していない
 
@@ -223,7 +223,7 @@ gh api repos/longhorn/longhorn/releases --jq '.[] | select(.tag_name|test("^v1\\
 | 5 | replica 1 のボリューム（Prometheus の 2 本） | **apply の前に Prometheus を止め（CR の `replicas` を 0）、manager の rollout が済んで全部のボリュームが healthy になり、2 本のエンジンを detached のまま更新してから戻す**（§4.7） | 下の §3.1 |
 | 6 | ほかのボリューム | 止めない。apply の後に degraded になっても、faulted でなく、rebuild で戻るなら待つ | dev の記録 §5.2 の 6。短時間の障害は許容する（2026-10-19 のユーザーの方針） |
 | 7 | NetworkPolicy | fleet-infra の直しで、6 つの selector に `region` を入れない（§1.4）。apply の後に `pvcheck.sh` で CSI の provision・attach・detach と RWX を確かめる（§4.9） | dev の結論の 1 |
-| 8 | エンジンの更新 | 全ボリューム（detached を含む）を `engine-upgrade.sh` で 1 本ずつ。小さいものから、`fs/h2` を最後に（§4.10）。UI は使わない | 計画 §4.3、dev の記録 §3.3 |
+| 8 | エンジンの更新 | 全ボリューム（detached を含む）を `engine-upgrade.sh` で 1 本ずつ。小さいものから、`fs/h2` を最後に（§4.10）。UI は使わない。**`failedAt` の付いた stopped の replica が残っているボリュームは、Longhorn がそれを消すまで流さない**（§9.5） | 計画 §4.3、dev の記録 §3.3 |
 | 9 | 古い instance-manager | 片付けない（ワークロードを止めて detach・アタッチし直すことはしない）。エンジンは古い instance-manager の中で新しい版のバイナリで動き、iscsid の直しも効く（dev の結論の 3・4）。古い instance-manager は、中のエンジンが detach で無くなったときに Longhorn が消す。2 回目の manager（1.13.0）も v1.11.2 の instance-manager を扱える（longhorn-manager v1.13.0 の `MinInstanceManagerAPIVersion` は 1 で、v1.11.2 の instance-manager の API の版は 7）。2 世代前が残る形は dev で確かめていないので、§6 で見る | dev の結論の 4、上流の KB「Some old instance manager pods are still running after upgrade」 |
 | 10 | open-iscsi の hold | 1 回目で全ボリュームの `status.currentImage` が v1.12.1 になり、古いセッションが無いことを確かめたら、4 台の `51fraction-hold-open-iscsi` を消す（§5.3） | TASK.md の 2026-10-19 のユーザー指示、計画 §4.3、dev の結論の 3 |
 | 11 | 古い engine image | その回のエンジンの更新が全部済み、`REFCOUNT` が 0 になったら消す（§4.11） | dev の記録 §3.3 |
@@ -264,7 +264,7 @@ K="kubectl --context fraction -n longhorn-system"
 |---|---|---|
 | 1 | Longhorn の版 | `current-longhorn-version` の設定が `<前の版>`。`longhorn-system` の Pod の image が `<前の版>`（CSI のサイドカーはその版のもの）。1 回目の前は §2.1 と同じ |
 | 2 | ボリューム | attached のものが全部 healthy、faulted が 0（`lh-state.sh` の要約の `volumes`）。detached は `homegallery/cg-data` だけ。2 回目の前は、全部の `status.currentImage` が v1.12.1 |
-| 3 | replica | running でないものが §2.3 のものだけ。`failedAt` のあるものが §2.3 の 1 つだけ（消えていれば 0） |
+| 3 | replica | running でないものが §2.3 のものだけ。`failedAt` のあるものが §2.3 の 1 つだけ（消えていれば 0）。`fs/h2` の `-r-43fe8619` が残っていれば、§4.10 の 14（`fs/h2`）はそれが消えてから流す（§9.5）。ほかのボリュームに `failedAt` の付いた replica が増えていれば止める |
 | 4 | replica 1 のボリューム | `$K get volumes.longhorn.io -o json \| jq -r '.items[] \| select(.spec.numberOfReplicas == 1) \| .metadata.name + " " + .status.kubernetesStatus.namespace + "/" + .status.kubernetesStatus.pvcName'` が Prometheus の 2 本だけ。増えていれば止めて、§4.7 の扱いをユーザーと決める |
 | 5 | 古い形式の名前のエンジン | `$K get engines.longhorn.io -o name \| grep -cE '\-e\-[a-z0-9]{8}$'` が 4（§2.7） |
 | 6 | backing image | 0（failed のものが無い） |
@@ -565,6 +565,8 @@ docs/longhorn/tools/pvcheck.sh down             # 名前空間と PV、Longhorn 
 
    rc 1（faulted、または前の確認で断った）・rc 2（timeout）なら、次へ進まずに止める（§7）。
 
+   **例外: `fs/h2`（14）の Replica の CR の数で断られたとき**（`has 3 Replica CRs, numberOfReplicas is 2`）。出た一覧の余分な 1 つが §2.3 の `pvc-c4944b75-7ed0-4cf4-adce-bb5723993ff8-r-43fe8619`（duchamp、stopped、`failedAt` 2026-10-19T09:36:03Z）で、running の 2 つが healthy なら、止める条件には当たらない。Longhorn がそれを消すのを待ってから（2026-10-21 09:36Z ごろの見込み。§9.5）、`fs/h2` だけを流し直す。待つ間は 4・§4.11・§4.12 に進まず、`fs/h2` が終わってから進む（1 回目は §5.3 の hold の削除も、`fs/h2` が終わってから）。余分なものがそれ以外なら止める。
+
 4. 全部の後:
 
    ```sh
@@ -753,7 +755,15 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 
 ### 9.5 `fs/h2` の stopped の replica
 
-§2.3。2026-10-19 から `failedAt` の付いた stopped の replica（duchamp）が 1 つあり、2026-10-21 09:36Z ごろに Longhorn が消す見込み。作業の前と後で同じなら記録だけする。作業の途中に消えるのは想定どおり。
+§2.3。2026-10-19 から `failedAt` の付いた stopped の replica（duchamp の `pvc-c4944b75-…-r-43fe8619`）が 1 つあり、2026-10-21 09:36Z ごろに Longhorn が消す見込み（`failedAt` から `staleReplicaTimeout` の 2880 分）。作業の途中に消えるのは想定どおり。
+
+**これが残っている間は、`fs/h2` のエンジンを更新しない。** `fs/h2` の Replica の CR は 3 つ（running 2、この 1 つ）で `numberOfReplicas` は 2 なので、`engine-upgrade.sh` は一覧を出して断る（§4.10 の 3 の例外）。スクリプトでこの replica を数から除いて進める形にはしなかった。理由は次のとおり。
+
+- `failedAt` の付いた replica が残ったままの live upgrade は、dev で確かめていない（dev のボリュームの replica はどれも running だった）。live upgrade は replica ごとに新しい replica を作るので、失敗した replica の扱いが変わりうる
+- 待てば Longhorn が自分で消し、待つ時刻も分かっている。`fs/h2` はほかの 2 つの replica で healthy なので、待つ間も害は無い
+- 数を合わせるために replica の CR を手で消すのは runbook から外れる操作で、データのある replica に触る
+
+作業をその時刻より前に始めるなら、`fs/h2` を除く 16 本を先に流し、`fs/h2` は消えるのを待ってから流す（§4.10 の 3）。1 回目の §4.11・§4.12・§5.3 もその後になる。待たずに進めたいとき（replica の CR を手で消す、など）は、ユーザーが決める。
 
 ### 9.6 Docker Hub の pull の上限
 
