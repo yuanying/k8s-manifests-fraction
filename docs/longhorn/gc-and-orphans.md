@@ -7,6 +7,8 @@
 
 本番の値は 2026-10-20 03:15〜03:45Z に読み取りだけで取った。dev（context `test`、K8s v1.33.13、Longhorn v1.11.2）では 03:25〜03:37Z に再現して手順を確かめ、使ったものは元に戻した。**この文書を書く間、本番には何も書き込んでいない。**
 
+**実施済み**: 2026-10-20 03:50〜04:10Z に、本番で §2.6 と §3.4 を流した。8 つの ownerReference を書き換え、GC のエラーは止まった。orphan は 0 個になった。記録は `results/2026-10-20.md`。以下の「状態」の節は、流す前の値のまま残している。
+
 ## 0. 結論
 
 ### 0.1 GC のエラー
@@ -189,6 +191,8 @@ kubectl --context fraction -n longhorn-system get svc,pods | grep <volume>
 kubectl --context fraction -n kube-system logs <leader の Pod> --since=30m | grep 'REST mapping for longhorn'
 ```
 
+- 直った後の最初の再試行で、書き換えた 8 つが 1 回ずつ `"item has at least one existing owner, will not garbage collect"` になり、それきり出なくなる（2026-10-20 の本番はそうだった。`grep 'will not garbage collect'`）
+
 - 4 つのボリュームが attached healthy、Pod の再起動なし
 - `unset ADMIN_TOKEN KUBECTL`
 
@@ -302,6 +306,7 @@ kubectl --context fraction -n longhorn-system logs <そのノードの longhorn-
 
 - ノードでディレクトリが無い: `ssh yuanying@<ノードの IP> 'sudo test -e <DiskPath>replicas/<DataName> && echo STILL-THERE || echo gone'`
 - 1 分待って、同じ名前の orphan が作り直されていない
+  - 消した数秒後に、Longhorn が同じ名前の orphan を新しい uid で作り直し、20〜25 秒後に自分で消すことがある（2026-10-20 の本番は 12 個のうち 7 個。イベントの `OrphanCleanupCompleted` が uid 2 つ分出る）。ディスクの監視が削除の前に読んだ一覧を使うためと見ている。作り直した CR を消すときも同じディレクトリを消すだけなので、データには影響しない。`kubectl delete` の直後の `get` で CR が見えても、1 分待ってから判断する
 - 8〜12（今あるボリューム）では、そのボリュームが attached healthy のままで、Replica の数と名前・状態が前と同じ（`kubectl --context fraction -n longhorn-system get replicas.longhorn.io -l longhornvolume=<ボリューム>`）
 
 最後に、orphan が 0 個で、全ボリュームが前と同じ状態であることを確かめ、`unset ADMIN_TOKEN` する。
