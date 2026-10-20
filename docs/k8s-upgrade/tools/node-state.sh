@@ -5,7 +5,8 @@
 #   ssh <user>@<node> 'sudo bash -s' < docs/k8s-upgrade/tools/node-state.sh > <file>
 #
 # Prints:
-#   bin      where /opt/bin/{kubelet,kubectl,crictl,etcdctl} point
+#   bin      where /opt/bin/{kubelet,kubectl,crictl,etcdctl,etcdutl} point
+#            (<name>:none when the link is missing; porkadot 0.34 adds etcdutl)
 #   cni      the porkadot version mark and `--version` of the plugins in use
 #   iscsid   MainPID and ActiveEnterTimestamp (MainPID=0: not running, socket activated)
 #   session  one line per iSCSI session: sid, portal, target
@@ -17,7 +18,7 @@
 set -u
 export LC_ALL=C
 
-echo "bin $(readlink /opt/bin/kubelet /opt/bin/kubectl /opt/bin/crictl /opt/bin/etcdctl | xargs -n1 basename | tr '\n' ' ')"
+echo "bin $(for b in kubelet kubectl crictl etcdctl etcdutl; do t=$(readlink /opt/bin/$b) && basename "$t" || echo "$b:none"; done | tr '\n' ' ')"
 echo "cni mark=$(cat /opt/cni/bin/.porkadot-cni-plugins-version 2>/dev/null)" \
   "$(for p in bridge host-local portmap loopback; do printf '%s=%s ' $p "$(/opt/cni/bin/$p --version 2>&1 | head -1 | awk '{print $NF}')"; done)"
 echo "iscsid $(systemctl show iscsid -p MainPID -p ActiveEnterTimestamp | tr '\n' ' ')"
