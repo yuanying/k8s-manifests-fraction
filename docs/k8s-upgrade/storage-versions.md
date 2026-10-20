@@ -1,7 +1,7 @@
 # etcd に保存されたオブジェクトの版（storage version）
 
 本番 `fraction` の etcd に、今の kube-apiserver が書く版と違う版で保存されたままのオブジェクトがあるかを調べた結果と、調べ方。
-書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5。段 4 は書き直すものが無い。`runbook-stage-4.md` §2.5）。計画の扱いは `plan.md` §6.4。
+書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5。段 4 は書き直すものが無い。`runbook-stage-4.md` §2.5。段 5 は `install kubernetes` の後に IPAddress。`runbook-stage-5.md` §3.4）。計画の扱いは `plan.md` §6.4。
 
 ## 1. なぜ見るか
 
@@ -83,7 +83,7 @@ kube-apiserver 1.31 は、組み込みのリソースを、そのグループの
 - **この 2 種は `networking.k8s.io/v1beta1` で保存される。** 1.33 の `ResourceEncodingOverrides` に `ipaddresses` と `servicecidrs` の v1beta1 がある（`pkg/kubeapiserver/default_storage_factory_builder.go`、v1.33.13。「ipaddresses and servicecidrs are v1 in 1.33 / remove them in 1.34 when all apiserver understand the v1 version」）。1 つ前の 1.32 の apiserver が v1 を知らないので、1.32 に戻しても読めるようにするためである。discovery の `preferredVersion` は v1 なので、上の「ずれる」場合にあたる
 - **1.33 ではこれが正しい保存の形なので、書き直さない**（書き直しても v1beta1 で保存される）
 - §4 のスクリプトは、サーバーの版が 1.33 のときだけ、この 2 つの prefix の期待値を v1beta1 にする（`overrides.tsv`）。直す前のスクリプトは、dev の段 4 でこれを `OLD` と数えた（porkadot-dev の `docs/k8s-upgrade/verification-0.33-rc.md` の見つけたことの 4）
-- **1.34.0 のソースでは、この override が外れている**（同じファイル、v1.34.0）。1.34 の apiserver は v1 で書くので、1.33 の作った v1beta1 のオブジェクトは段 5 で本当に古い版になり、スクリプトは 1.34 では `OLD` と数える。段 5 の dev で確かめ、段 5 の書き直しの対象に入れるかを決める（`plan.md` §7 の段 5）
+- **1.34.0 のソースでは、この override が外れている**（同じファイル、v1.34.0）。1.34 の apiserver は v1 で書くので、1.33 の作った v1beta1 のオブジェクトは段 5 で本当に古い版になり、スクリプトは 1.34 では `OLD` と数える。v1.34.12 でも外れている。dev の段 5（porkadot-dev の `verification-0.34-rc.md` の見つけたことの 3）では、IPAddress が `OLD` に出て `kubectl replace` で v1 になり、ServiceCIDR は 1.34 の apiserver が自分で v1 に書き直した。段 5 では `install kubernetes` の後に IPAddress を書き直す（`runbook-stage-5.md` §3.4）
 - 1.33 の apiserver は、前の bitmap（`/registry/ranges/serviceips`）にも書き続ける（`DisableAllocatorDualWrite` は 1.33 で beta、既定で無効。`pkg/features/kube_features.go`）。1.32 に戻すと、1.32 の apiserver は bitmap だけを使い、ServiceCIDR と IPAddress は etcd に残って使われない（`runbook-stage-4.md` §7.2）
 
 ほかの 1.33 の override（`leasecandidates`、`mutatingadmissionpolicies`・`mutatingadmissionpolicybindings`、`clustertrustbundles`、`volumeattributesclasses`、`storagemigrations`、`devicetaintrules`）は、本番にオブジェクトが無い（2026-10-20 の `prefixes.txt` に prefix が無い）。どれかのオブジェクトができたら、スクリプトの `overrides.tsv` に足す。

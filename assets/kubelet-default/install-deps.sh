@@ -24,6 +24,9 @@ echo $architecture
 OPT_DIR=${PORKADOT_OPT_DIR:-/opt}
 BIN_DIR=${OPT_DIR}/bin
 CNI_BIN_DIR=${OPT_DIR}/cni/bin
+# The reference CNI plugins (bridge, host-local, portmap, loopback, ...) are owned by
+# the node, whichever CNI addon is enabled: the CNI DaemonSet only puts its own
+# binary here (flannel puts flannel, cnidaria puts none).
 # The CNI plugins are extracted in place, so their version is kept in a file.
 CNI_VERSION_FILE=${CNI_BIN_DIR}/.porkadot-cni-plugins-version
 
@@ -65,7 +68,7 @@ else
   echo "CNI plugins ${CNI_VERSION} already installed"
 fi
 
-RELEASE="v1.33.13"
+RELEASE="v1.34.12"
 
 fetch_kubectl() {
   curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl -o $1/kubectl
@@ -77,15 +80,17 @@ fetch_kubelet() {
 }
 install_bin kubelet ${RELEASE} fetch_kubelet
 
-ETCD_VER="3.5.34"
-fetch_etcdctl() {
+ETCD_VER="3.6.15"
+# etcdctl and etcdutl come from the same etcd release archive.
+fetch_etcd() {
   curl -fL https://github.com/etcd-io/etcd/releases/download/v${ETCD_VER}/etcd-v${ETCD_VER}-linux-${architecture}.tar.gz \
     -o $1/etcd.tar.gz
   tar zxvf $1/etcd.tar.gz -C $1/ --strip-components=1
 }
-install_bin etcdctl ${ETCD_VER} fetch_etcdctl
+install_bin etcdctl ${ETCD_VER} fetch_etcd
+install_bin etcdutl ${ETCD_VER} fetch_etcd
 
-CRICTL_VER="v1.33.0"
+CRICTL_VER="v1.34.0"
 fetch_crictl() {
   curl -fL https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz \
     -o $1/crictl.tar.gz
