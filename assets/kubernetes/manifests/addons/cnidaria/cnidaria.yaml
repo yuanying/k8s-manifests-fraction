@@ -79,28 +79,10 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux
       serviceAccountName: cnidaria
-      initContainers:
-      # cnidaria has no CNI binary of its own. The reference plugins its conflist
-      # names are copied out of the image, each through a temporary name so that a
-      # running plugin is replaced rather than written over.
-      - name: install-cni-plugins
-        image: ghcr.io/yuanying/cnidaria-cni:v0.1.1
-        command: [sh, -c]
-        args:
-        - |
-          set -eu
-          for p in bridge host-local portmap; do
-            cp -f "/opt/cni/bin/$p" "/host/opt/cni/bin/.$p.tmp"
-            chmod 0755 "/host/opt/cni/bin/.$p.tmp"
-            mv -f "/host/opt/cni/bin/.$p.tmp" "/host/opt/cni/bin/$p"
-          done
-        securityContext:
-          privileged: false
-          capabilities:
-            drop: [ALL]
-        volumeMounts:
-        - name: cni-bin
-          mountPath: /host/opt/cni/bin
+      # cnidaria has no CNI binary of its own, and this DaemonSet does not touch
+      # /opt/cni/bin. The reference plugins its conflist names (bridge, host-local,
+      # portmap) and the loopback that containerd calls are put there by
+      # `porkadot install kubelet` (kubernetes.networking.cni_version).
       containers:
       - name: cnidaria
         image: ghcr.io/yuanying/cnidaria-cni:v0.1.1
@@ -148,10 +130,6 @@ spec:
       - name: cni-conf
         hostPath:
           path: /etc/cni/net.d
-          type: DirectoryOrCreate
-      - name: cni-bin
-        hostPath:
-          path: /opt/cni/bin
           type: DirectoryOrCreate
       - name: proc-sys-net
         hostPath:
