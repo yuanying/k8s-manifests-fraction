@@ -1,0 +1,32 @@
+# Longhorn CSI check (runbook-upgrade-1.12-1.13.md): created and removed by ./pvcheck.sh up / down.
+# Two silver (2 replicas) PVCs: one RWO (engine + replicas, CSI provision and attach) and one
+# RWX (also the share-manager and its recovery backend). The pod is made by pvcheck.sh, pinned
+# to a node.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lh-pvcheck
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rwo
+  namespace: lh-pvcheck
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: silver
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rwx
+  namespace: lh-pvcheck
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: silver
+  resources:
+    requests:
+      storage: 1Gi
