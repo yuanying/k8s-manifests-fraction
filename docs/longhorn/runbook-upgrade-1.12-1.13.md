@@ -479,7 +479,7 @@ $K get pods -o wide -w     # 全部が Running・Ready になるまで
 | 6 | UI・driver-deployer | 新しい版で Running |
 | 7 | ボリューム | **attached のものが全部 healthy**（degraded になったら、faulted でなく rebuild が進んでいれば待つ。§7）。Prometheus の 2 本と `cg-data` は detached |
 | 8 | replica | `failed`・`error` の増えたものがあれば記録し、rebuild で running に戻ることを見る。戻らなければ §7 |
-| 9 | share-manager | 2 つ（`tumblr-data`、`ero-data`）が running。Pod が作り直されたかを記録する（dev には RWX が無かった）。`homegallery` の `ero-web`・`tumblr-web` の Pod が Running で、restartCount が増えていない |
+| 9 | share-manager | 2 つ（`tumblr-data`、`ero-data`）が running。Pod が作り直されたかを記録する（dev には RWX が無かった。1 回目は作り直されなかった）。`homegallery` の `ero-web`・`tumblr-web` の Pod が Running で、restartCount が増えていない。古い remount の要求で Pod が消されることがある（§9.8） |
 | 10 | Pod | `longhorn-system` の全 Pod が Running・Ready。クラスタ全体で Running / Completed 以外の Pod が無い。Longhorn を使う Pod の restartCount が §4.1 の 12 から増えていない |
 | 11 | NetworkPolicy | `longhorn-system` に 6 つ。`lh-state.sh $D/after-apply` の要約の `with region in a selector` が 0 |
 | 12 | 監視 | §4.4 の `FAIL` の時刻と数、`lh-watch.sh` の degraded・`error` の時刻を記録する |
@@ -774,6 +774,13 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 ### 9.7 apply は消さない
 
 `kubectl apply -k` は prune しない。前の版の manifest にあり、新しい版に無いリソースは残る（1.12.1・1.13.0 では削除は無い。§5.1、§6.1）。本番には 2022 年の `longhorn-conversion-webhook` の Service が残っていて、今の manifest には無い（害は無い。この作業では触らない）。
+
+### 9.8 manager の入れ替わりで、古い remount の要求が処理される
+
+1 回目の apply の直後（2026-10-20 18:46:02・18:46:04）、新しい longhorn-manager が `homegallery/tumblr-web` の 2 つの Pod を消した（ログは `Deleted pod ... so that Kubernetes will handle remounting volume pvc-0b28d049-...`、`KubernetesPodController.handlePodDeletionIfVolumeRequestRemount`）。`tumblr-data` の `status.remountRequestedAt` はその前日（2026-10-19T09:35:31Z、iscsid の件の後）のままで、消された Pod はそれより前に作られたものだった。古い manager が処理しなかった古い remount の要求を、新しい manager が起動のときに処理したと見ている（確かめていない。同じように古い `remountRequestedAt`（2026-10-19T09:35:29Z）を持ち、それより前に作られた Pod（`ero-web-...-x689d`）もある `ero-data` では、Pod は消されなかった）。
+
+- share-manager は作り直されず、新しい Pod は 4〜40 秒で Running になった（duchamp に載った方は、manager の入れ替わりの間 `FailedAttachVolume` を再試行した）。ユーザーは、記録して続けると判断した（§7 の「想定外の再起動」として一度止めた）
+- **2 回目の前に**、§4.1 で `kubectl --context fraction -n longhorn-system get volumes.longhorn.io -o custom-columns=N:.metadata.name,R:.status.remountRequestedAt` を読み、そのボリュームを使う Pod の `creationTimestamp` が `remountRequestedAt` より前なら、apply の後にその Pod が消されうると見ておく。消されたら§4.8 の 9・10 に記録し、Pod が Running に戻るなら止めない（それ以外の Pod の削除や、戻らないときは§7 で止める）
 
 ## 10. 記録
 
