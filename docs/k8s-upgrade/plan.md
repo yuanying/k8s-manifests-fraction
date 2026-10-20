@@ -24,8 +24,8 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 | 1 | 0.30.x | v1.30.14 | **3.5.34-0**（パッチ更新） | v1.11.3 | 2.3.x | |
 | 2 | 0.31.x | v1.31.14 | 3.5.34-0 | v1.11.3 | 2.3.x | |
 | 3 | 0.32.x | v1.32.13 | 3.5.34-0 | v1.11.4 | 2.3.x | porkadot 0.32 から、`install kubelet` が iscsid を必要なときだけ再起動する（§4.4）。CNI plugins を v1.9.1 に（§3）。段の前に古い storage の版のオブジェクトを書き直す（§6.4） |
-| 4 | 0.33.x | v1.33.13 | 3.5.34-0 | v1.12.0 | 2.3.x | |
-| 5 | 0.34.x | v1.34.12 | **3.6.15-0**（マイナー更新） | v1.12.1 | 2.3.x | **段の後に Longhorn 1.11.2 → 1.12.x（v1.12.1 以上）→ 1.13.x**（§4） |
+| 4 | 0.33.x | v1.33.13 | 3.5.34-0 | **v1.12.4** | 2.3.x | drain しない（§9.3）。storage version の書き直しは無い（1.33 が作る ServiceCIDR・IPAddress は v1beta1 で保存されるのが正しい。§7） |
+| 5 | 0.34.x | v1.34.12 | **3.6.15-0**（マイナー更新） | v1.12.4（段 4 のまま） | 2.3.x | **段の後に Longhorn 1.11.2 → 1.12.x（v1.12.1 以上）→ 1.13.x**（§4） |
 | 6 | 0.35.x | v1.35.9 | 3.6.15-0 | v1.13.1 | 2.3.x | 段の前に全台が cgroup v2 であることを確かめる |
 | 7 | 0.36.x | v1.36.5 | 3.6.15-0 | v1.14.2 | 2.3.x | |
 | 8 | 0.37.x | v1.37.1 | **3.7.x**（マイナー更新） | **v1.14.7**（CoreDNS の最新） | 2.3.x | 段の後に非クリティカルなコンポーネントを最新へ（§8）、containerd の config を version 4 に（§10） |
@@ -35,6 +35,7 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 - 1.37 の etcd を 3.7.0-0（kubeadm の既定）と 3.7.2-0（3.7 の最新パッチ）のどちらにするかは、段 8 の時点の最新を見て porkadot の 0.37 の PR で決める。
 - containerd の 2.3.x は、段 C の時点で Docker のリポジトリにある 2.3 系の最新パッチ（2026-10-18 は 2.3.6、runc 1.5.1 同梱）。段 1 以降の 2.3 のパッチは §5.8。
 - **CoreDNS は段 1〜7 で kubeadm の既定に合わせ、段 8 では kubeadm の既定（v1.14.6）ではなく CoreDNS の最新（2026-10-18 は v1.14.7）にする**（ユーザー指示）。kubeadm の Corefile の改善（`cache` の `disable success <domain>` / `disable denial <domain>`。`survey-2026-10.md` §6）も段 8 で一緒に入れる。段 8 の時点で CoreDNS の最新と `registry.k8s.io/coredns/coredns` のタグ（arm64 を含む）を確かめ直す。
+- **ただし段 4 と段 5 は v1.12.4 にする**（2026-10-20 の coordinator の判断。段 4 の kubeadm の既定は v1.12.0、段 5 は v1.12.1）。v1.12.0 には v1.11.4 で入った coredns#6898（hostname のある Endpoint だけに PTR を作る）の回帰が残り、v1.12.1 で revert された（coredns#7194）。v1.12.1・v1.12.3 の修正も入り、Renovate がすぐ patch を出す。段 5 の kubeadm の既定（v1.12.1）より新しいので、段 5 では据え置く。本番の v1.11.4 では、hostname の無い Endpoint の Pod の IP の逆引きが NXDOMAIN になっている（2026-10-20 の読み取り。`runbook-stage-4.md` §2.2 の 23）
 
 ## 3. コンポーネントの分類
 
@@ -44,7 +45,7 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 |---|---|---|---|---|
 | etcd | 3.5.12 | **クリティカル** | 1 マイナーずつ、かつ前の系列の新しいパッチからしか上げられない（[3.6 の zombie members](https://etcd.io/blog/2025/zombie_members_upgrade/)、[3.7 の upgrade](https://etcd.io/docs/v3.7/upgrades/upgrade_3_7/)）。3.7 は `--experimental-*` が残ると起動しない | porkadot の各版で上げる（§2） |
 | control-plane・kube-proxy・kubelet | v1.29.8 | **クリティカル**（本体） | — | porkadot の各版 |
-| CoreDNS | v1.10.1 | **クリティカル**（porkadot が配る） | porkadot の版が K8s のマイナーに対応する決まり。kubeadm の各版の既定に合わせる | porkadot の各版。段 8 で最新（v1.14.7）と Corefile の改善（§2） |
+| CoreDNS | v1.10.1 | **クリティカル**（porkadot が配る） | porkadot の版が K8s のマイナーに対応する決まり。kubeadm の各版の既定に合わせる（段 4・5 は v1.12.4。§2） | porkadot の各版。段 8 で最新（v1.14.7）と Corefile の改善（§2） |
 | cnidaria | v0.1.1 | **クリティカル**（自作 CNI） | 動かなくなれば Pod の通信が止まる。API の面では問題は見当たらない（GA の API だけ、client-go v0.37.0） | 各段で dev と本番で確かめる。直しが要れば cnidaria-cni の PR |
 | Longhorn | v1.11.2 | **クリティカル** | 製品自身が 1 マイナーずつしか許さない。1.11.3・1.13.0 は K8s 1.34 以上を要求する。上限の K8s の表明はどの版にも無い（[release notes](https://github.com/longhorn/longhorn/releases)、[upgrade](https://longhorn.io/docs/1.13.0/deploy/upgrade/)） | 段 5 の後に 2 回（§4） |
 | containerd・runc | 2.2.1・1.3.4 | **クリティカル** | 2.2 は 1.37 の推奨表に無い（1.37 は 2.4.0+ / 2.3.0+）。2.2 の upstream の EoL は 2026-11-06、runc 1.3 は 2026-10 末（[containerd RELEASES.md](https://github.com/containerd/containerd/blob/main/RELEASES.md)、runc 1.5.0 の release notes） | 段 C で 2.3 系へ（§5） |
@@ -304,8 +305,8 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 | 1（1.30） | etcd を 3.5.34 へ（パッチ更新）。porkadot の手順書を §6.2 の順に直す（0.30 の PR）。crictl を v1.30.1 へ（1.29 で上げ忘れていた）。本番の `porkadot.yaml` から `ETCD_UNSUPPORTED_ARCH` を消す（§10） |
 | 2（1.31） | kubelet の serving 証明書の CSR が CN とノード名の一致を検査される。kubelet-serving-cert-approver で承認されることを `kubectl get csr` で見る。**本番で分かったこと**: 1.31 の kubelet はそのノードの全コンテナを 1 回再起動させる（kubernetes#124220。`runbook-stage-2.md` §8.4）ので、Longhorn のノードの worker 4 台は drain した（§9.3）。drain の後に古い iSCSI のセッションが残り、ボリュームが faulted を繰り返したので、drain した台は uncordon の前に再起動した（§4.4、`results/stage-2/iscsi-stale-sessions.md`） |
 | 3（1.32） | `flowcontrol.apiserver.k8s.io/v1beta3` の削除。本番は使っていないことを確かめてある。段の前に Prometheus の `apiserver_requested_deprecated_apis` を見直す。**etcd に v1beta3 で保存されたままの FlowSchema・PriorityLevelConfiguration（と v1beta1 の EndpointSlice）を、`install kubernetes` の前に v1 で書き直す**（§6.4）。porkadot 0.32 から `install kubelet` が iscsid を必要なときだけ再起動する。**dev で 1.32 の kubelet ではコンテナが再起動しなかったので、drain しない**（§9.3。drain する台が出たら、drain の後・`install kubelet` の前に `iscsiadm -m session` を見て古いセッションを logout し、再起動はしない。§4.4）。CoreDNS v1.11.4、CNI plugins v1.9.1 |
-| 4（1.33） | v1 Endpoints API が非推奨になる（削除はされない）。kube-prometheus の ServiceMonitor などが warning を出すだけ |
-| 5（1.34） | **etcd 3.6.15 へ（マイナー更新）**。porkadot がフラグ名（`--experimental-initial-corrupt-check`、`--experimental-watch-progress-notify-interval`）を新しい名前に変える。static Pod から API オブジェクトを参照できなくなる（bootstrap の kube-proxy を porkadot で直す。稼働中の更新には効かない）。**段の後に Longhorn を 2 回上げる**（§4。1.12 は v1.12.1 以上。各ボリュームのエンジンの更新まで。その後に open-iscsi の unattended-upgrades の止めを戻す） |
+| 4（1.33） | CoreDNS v1.12.4（§2。Corefile は変わらない）、crictl v1.33.0。etcd・CNI plugins は据え置き。**dev で 1.33 の kubelet でもコンテナが再起動せず、iscsid も再起動しなかったので、drain しない**（§9.3。porkadot-dev の `verification-0.33-rc.md`）。**1.33 の apiserver は ServiceCIDR と Service の ClusterIP ごとの IPAddress を作り、`networking.k8s.io/v1beta1` で保存する**（`ResourceEncodingOverrides`。1.32 に戻せるように）。これが 1.33 の正しい保存の形なので書き直さず、`tools/storage-versions.sh` の期待値にこの override を足した（`storage-versions.md` §3.1）。移行のときの Service ごとの `ClusterIPNotAllocated` の event は想定どおり。**v1 Endpoints API が非推奨になる**（削除はされない）。control-plane 自身が使うので `apiserver_requested_deprecated_apis` に `endpoints` が必ず出る。合格基準から外し、warning を出すクライアントを記録するだけにする（dev では longhorn-manager v1.11.2 だけ。`runbook-stage-4.md` §6、§8.15） |
+| 5（1.34） | **etcd 3.6.15 へ（マイナー更新）**。porkadot がフラグ名（`--experimental-initial-corrupt-check`、`--experimental-watch-progress-notify-interval`）を新しい名前に変える。static Pod から API オブジェクトを参照できなくなる（bootstrap の kube-proxy を porkadot で直す。稼働中の更新には効かない）。**段の後に Longhorn を 2 回上げる**（§4。1.12 は v1.12.1 以上。各ボリュームのエンジンの更新まで。その後に open-iscsi の unattended-upgrades の止めを戻す）。CoreDNS は段 4 の v1.12.4 のまま（§2）。1.34.0 のソースでは `ipaddresses`・`servicecidrs` の v1beta1 の override が外れているので、段 4 で v1beta1 で保存された ServiceCIDR と IPAddress は、段 5 で書き直しの対象になる見込み（v1.34.12 でも外れているかと、書き直し方は段 5 の dev で確かめる。§6.4、`storage-versions.md` §3.1） |
 | 6（1.35） | **kubelet が cgroup v1 で起動しない**。段の前に全台の `stat -fc %T /sys/fs/cgroup` が `cgroup2fs` であることを確かめる（2026-10-18 の調査では 8 台とも `cgroup2fs`）。kubelet の `--pod-infra-container-image` の削除（使っていない） |
 | 7（1.36） | `gitRepo` volume が無効になる（使っていない）。kube-controller-manager のメトリクス `volume_operation_total_errors` が `volume_operation_errors_total` に改名（本番の PrometheusRule は使っていない）。MetalLB の CRD を apply し直すことになるので、dev で `install kubernetes` が通ることを見る |
 | 8（1.37） | **etcd 3.7 へ（マイナー更新）**。`--experimental-*` が残っていると etcd が起動しないので、段 5 でフラグを直したことを render の差分で確かめる。kube-proxy は `mode` の明示が無いと warning を出す（本番は `mode: iptables` を継ぐ）。containerd 2.3 は 1.37 の推奨表に入る。**CoreDNS を最新（v1.14.7）にし、Corefile の `cache` に `disable success` / `disable denial` を足す**（§2）。kubelet の `--container-runtime-endpoint` を KubeletConfiguration へ移す（§10） |
@@ -355,7 +356,7 @@ CRD を持つもの（kube-prometheus-stack の `monitoring.coreos.com`、MetalL
 - **段 C**: worker は drain する（前タスクの手順をそのまま使う）。control-plane は drain しない。
 - **K8s の各段（計画の承認のとき）**: worker も drain しない。dev の検証（§6.6）で kubelet の更新でコンテナが再起動しないことを各段で確かめ、再起動する段だけ drain する。
 - **段 2 で分かったこと（2026-10-19）**: 1.31 の kubelet はそのノードの全コンテナを 1 回再起動させ、drain しないと Longhorn のボリュームが faulted になる（porkadot-dev の `docs/k8s-upgrade/verification-0.31-rc.md`）。そこで段 2 では、**Longhorn のノードの worker 4 台（pablo、duchamp、chirico、oeilvert）を drain してから `install kubelet` し、braque と control-plane 3 台は drain しなかった**（ユーザーの承認）。drain の基準は「短時間の途切れ」より「Longhorn のボリュームの安全」（ユーザーの方針。短時間の障害は許容する）。drain の後に古い iSCSI のセッションが残ったので、drain した台は uncordon の前に再起動した。
-- **段 3 以降**: drain の要否は、その段の dev の検証で同じことが起きるかを見て決める。段 3（1.32）は、dev でコンテナが再起動せず、porkadot 0.32.0 の `install kubelet` が iscsid も再起動しなかったので、drain しない（`runbook-stage-3.md` §2.7。本番でコンテナの再起動が出たら止める）。drain する台は、**再起動の代わりに**、drain の後・`install kubelet` の前に `iscsiadm -m session` を見て古いセッションを logout し、`install kubelet` の後に空を確かめて uncordon する（§4.4）。porkadot 0.32 からは `install kubelet` が iscsid を必要なときだけ再起動する。
+- **段 3 以降**: drain の要否は、その段の dev の検証で同じことが起きるかを見て決める。段 3（1.32）は、dev でコンテナが再起動せず、porkadot 0.32.0 の `install kubelet` が iscsid も再起動しなかったので、drain しない（`runbook-stage-3.md` §2.7。本番でコンテナの再起動が出たら止める）。本番の段 3 でも 8 台でコンテナの再起動は無かった。段 4（1.33）も、dev でコンテナも iscsid も再起動せず、アタッチしたままのボリュームが healthy のままだったので、drain しない（`runbook-stage-4.md` §2.7）。drain する台は、**再起動の代わりに**、drain の後・`install kubelet` の前に `iscsiadm -m session` を見て古いセッションを logout し、`install kubelet` の後に空を確かめて uncordon する（§4.4）。porkadot 0.32 からは `install kubelet` が iscsid を必要なときだけ再起動する。
 
 ### 9.4 oeilvert の Docker（devbox）
 
