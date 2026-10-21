@@ -67,6 +67,8 @@ ADMIN_TOKEN=$(cat /tmp/lh-upg-admin-token)
 kubectl --context fraction --token="$ADMIN_TOKEN" auth can-i patch volumes.longhorn.io -n longhorn-system   # yes
 ```
 
+初回のバックアップ（§4.5）は 3 時間を超えうるので、その後の手順の前に期限を確かめ、切れていれば発行し直す（1 回目は 17:15 に切れ、system backup の前に発行し直した）。
+
 トークンを使うのは、§4.2 の diff と dry-run、§4.5 のバックアップ、§4.7 の Prometheus、§4.8 の apply、§4.9 の `pvcheck.sh`、§4.10 のエンジンの更新、§4.11 の engine image の削除だけ。
 
 ### 1.3 SSH
@@ -328,7 +330,7 @@ done | tee -a $D/probe.log &
 
 dev では確かめていない（BackupTarget が無い）。形は、Longhorn の system backup の controller がボリュームのバックアップを作るときと同じ（longhorn-manager v1.11.2 の `controller/system_backup_controller.go` の `createVolumeSnapshot`・`createVolumeBackupFromSnapshot`。Snapshot の CR を `createSnapshot: true` で作り、`readyToUse` になったら、`backup-target`・`backup-volume` の label を付けた Backup の CR を `snapshotName` で作る）。**最初に 1 本（いちばん小さい `data-calendar-keeper-0`）だけ流して形を確かめてから、残りを流す。**
 
-**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので、線速でも約 50 分、実際は 1〜2 時間の見込み（確かめていない）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は差分なので短い。braque の空き（9.4T）は足りる。
+**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので線速でも約 50 分だが、**1 回目の実際は約 22 MB/s で、16 本に約 4 時間 15 分かかった**（`fs/h2` だけで 2 時間 30 分。`results/upgrade-1.12-1.13/1.12.1.md` §3）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は差分なので短い。braque の空き（9.4T）は足りる。
 
 1. 名前を決める（回ごとに別にする）。
 
@@ -397,7 +399,7 @@ dev では確かめていない（BackupTarget が無い）。形は、Longhorn 
    - `Ready` にならず `Error` なら、`status.conditions` を見て止める
    - system backup の中身は Longhorn の CRD・Setting・Volume・PV・PVC・StorageClass・DaemonSet・Deployment など（上流の文書）。Longhorn の Node は含まない
 
-6. braque で、バックアップの置き場所の大きさを記録する（読み取り。`ssh yuanying@192.168.1.131 'sudo du -sh /export/backups/longhorn'`）。
+6. braque で、バックアップの置き場所の大きさを記録する（読み取り。`ssh yuanying@192.168.1.131 'sudo du -sh /export/backups/longhorn'`）。ブロックのファイルが多く、1 回目は約 40 分かかったので、バックグラウンドで流して先に進む。
 
 - スナップショット（`$TAG-*`）は消さずに残す（§11）。バックアップは NFS に残るので、スナップショットを消してもバックアップは消えない。スナップショットは、それより後に書き換えたブロックの分だけ replica のディスクを使う
 - 1 回目と 2 回目の両方のバックアップを、Longhorn の更新が終わって落ち着くまで消さない
@@ -420,13 +422,14 @@ dev の結論の 2。apply の後に containerd が 1.2 GB 前後を pull・展�
    ```sh
    for ip in 192.168.1.134 192.168.1.135 192.168.1.82 192.168.1.83; do
      echo "== $ip $(date -u +%T)"
-     ssh -n yuanying@$ip "for i in $IMGS; do sudo /opt/bin/crictl pull \$i >/dev/null && echo pulled \$i || echo FAIL \$i; done"
+     ssh -n yuanying@$ip "for i in $IMGS; do sudo /opt/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock --image-endpoint unix:///run/containerd/containerd.sock pull \$i >/dev/null && echo pulled \$i || echo FAIL \$i; done"
      echo "== $ip done $(date -u +%T)"
    done 2>&1 | tee $D/pull.log
    ```
 
    - 1 台の pull の間、`lh-watch.sh` で replica の `error`・ボリュームの degraded が出ないことを見る。出たら次の台へ進まずに止める（pull そのものも I/O を重くする）
    - `FAIL` が出たら、その台をもう一度流す。`429 Too Many Requests`（Docker Hub の匿名の pull の上限。100 回 / 6 時間 / IP）なら、時間をおいて流し直す。1 回の事前 pull は 44 回（11 × 4 台）
+   - ノードに `/etc/crictl.yaml` が無いので、endpoint を渡さないと `crictl` が既定の endpoint の警告を毎回出す（pull はできる。1 回目の pablo）
    - 全部の `pulled` を確かめる: `ssh -n yuanying@<ip> 'sudo /opt/bin/crictl images | grep -E "longhornio/(longhorn-|csi-|livenessprobe)" | grep -E "<版>|<その回の CSI の版>"'`
 
 - Longhorn の Pod の `imagePullPolicy` は `IfNotPresent`（manifest と、設定 `system-managed-pods-image-pull-policy` の `if-not-present`）なので、apply の後は pull しない
@@ -472,12 +475,12 @@ $K get pods -o wide -w     # 全部が Running・Ready になるまで
 | 1 | manager | `longhorn-manager` の DaemonSet が 4 つとも `<版>`、Ready（`maxUnavailable: 100%` なので 4 台同時に入れ替わる） |
 | 2 | 版の設定 | `$K get settings.longhorn.io current-longhorn-version -o jsonpath='{.value}'` が `<版>`。`default-engine-image`・`default-instance-manager-image` が `<版>` |
 | 3 | engine image | 新しい engine image（`docker.io/longhornio/longhorn-engine:<版>`）が `deployed`。古いもの（`<前の版>`）も残る（`REFCOUNT` はまだ 0 でない） |
-| 4 | instance-manager | 各ノードに `<版>` の instance-manager が 1 つずつ `running`（4 つ）。`<前の版>` のものも、エンジンを持つものは残る（1 回目は 4 つとも。エンジンの無い duchamp のものも replica を持つので残る） |
+| 4 | instance-manager | 各ノードに `<版>` の instance-manager が 1 つずつ `running`（4 つ）。`<前の版>` のものも、エンジンを持つものは残る（1 回目は 4 つとも。エンジンの無い duchamp のものも replica を持つので残る。1 回目では、§4.10 の live upgrade で replica が新しいものに移り切った時点で Longhorn が消した） |
 | 5 | CSI | `longhorn-csi-plugin` 4、`csi-attacher`・`csi-provisioner`・`csi-resizer`・`csi-snapshotter` 3 ずつが新しい版で Running。サイドカーの 1〜3 回の再起動は想定内（`csi.sock` を待つ。dev の記録 §3.2） |
 | 6 | UI・driver-deployer | 新しい版で Running |
 | 7 | ボリューム | **attached のものが全部 healthy**（degraded になったら、faulted でなく rebuild が進んでいれば待つ。§7）。Prometheus の 2 本と `cg-data` は detached |
 | 8 | replica | `failed`・`error` の増えたものがあれば記録し、rebuild で running に戻ることを見る。戻らなければ §7 |
-| 9 | share-manager | 2 つ（`tumblr-data`、`ero-data`）が running。Pod が作り直されたかを記録する（dev には RWX が無かった）。`homegallery` の `ero-web`・`tumblr-web` の Pod が Running で、restartCount が増えていない |
+| 9 | share-manager | 2 つ（`tumblr-data`、`ero-data`）が running。Pod が作り直されたかを記録する（dev には RWX が無かった。1 回目は作り直されなかった）。`homegallery` の `ero-web`・`tumblr-web` の Pod が Running で、restartCount が増えていない。古い remount の要求で Pod が消されることがある（§9.8） |
 | 10 | Pod | `longhorn-system` の全 Pod が Running・Ready。クラスタ全体で Running / Completed 以外の Pod が無い。Longhorn を使う Pod の restartCount が §4.1 の 12 から増えていない |
 | 11 | NetworkPolicy | `longhorn-system` に 6 つ。`lh-state.sh $D/after-apply` の要約の `with region in a selector` が 0 |
 | 12 | 監視 | §4.4 の `FAIL` の時刻と数、`lh-watch.sh` の degraded・`error` の時刻を記録する |
@@ -596,7 +599,7 @@ diff -r $D/before $D/after > $D/state.diff
 
 | # | 確認 | 合格基準 |
 |---|---|---|
-| 1 | 版 | `current-longhorn-version` が `<版>`。`longhorn-system` の Pod の image が `<版>`（engine-image の DaemonSet は `<版>` のものだけ）。古い instance-manager は、エンジンの残るものだけが `<前の版>` |
+| 1 | 版 | `current-longhorn-version` が `<版>`。`longhorn-system` の Pod の image が `<版>`（engine-image の DaemonSet は `<版>` のものだけ）。古い instance-manager は、エンジンの残るものだけが `<前の版>`。share-manager の Pod は作り直されるまで `<前の版>` のイメージのまま（1 回目は 2 つとも v1.11.2 のまま） |
 | 2 | ボリューム | 17 本とも `status.currentImage` が `<版>`。attached 16 が healthy、detached は `cg-data` だけ（§4.1 と同じ。Prometheus の 2 本は attached に戻っている） |
 | 3 | replica の数 | 各ボリュームの running の replica の数が `numberOfReplicas` と同じ。全体の数が §4.1 と同じ（Prometheus の 2 本は、Pod が別のノードに載ると data locality の rebuild で replica の置き場所が変わる。§4.10 の 2。rebuild が終わっていること） |
 | 4 | `failedAt` | §2.3 の 1 つ（消えていれば 0）のほかに無い |
@@ -606,7 +609,7 @@ diff -r $D/before $D/after > $D/state.diff
 | 8 | iSCSI | 4 台の Longhorn のセッションの数が、そのノードにアタッチされたボリュームの数と同じ（作業の前は chirico 10、oeilvert 5、pablo 1、duchamp 0。Prometheus の 2 本は、戻した Pod のノードで数える）。portal は、どれもそのエンジンのいる instance-manager の IP（古い instance-manager の IP でもよい）。それ以外の portal が無い |
 | 9 | iscsid | 4 台の MainPID が §4.1 の 10 と同じ（この作業では iscsid を再起動しない） |
 | 10 | Pod | クラスタ全体で Running / Completed 以外が無い。Longhorn を使う Pod の restartCount が §4.1 の 12 から増えていない（Prometheus の 2 つは作り直したもの） |
-| 11 | アプリ | `check-apps.sh` が前と同じ。Prometheus の 2 つが Running で、スクレイプが落ちていない（`up == 0` が 0 個）。natsumi（`aki.fraction.jp`、`myao3.fraction.jp`、`natsumi.poissonnerie.dev`）、`www.fraction.jp`、homegallery の Pod、fraction-agents の 6 つ、`aphrael`・`comics` の Pod が Running |
+| 11 | アプリ | `check-apps.sh` が前と同じ。Prometheus の 2 つが Running で、スクレイプが落ちていない（`up == 0` が 0 個。`https://prometheus.fraction.jp/` は認証が要るので、`kubectl --context fraction get --raw '/api/v1/namespaces/monitoring/services/http:kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count(up%3D%3D0)'` で読む。結果が空なら 0）。natsumi（`aki.fraction.jp`、`myao3.fraction.jp`、`natsumi.poissonnerie.dev`）、`www.fraction.jp`、homegallery の Pod、fraction-agents の 6 つ、`aphrael`・`comics` の Pod が Running |
 | 12 | cnidaria | ✋ `netcheck.sh` が通る |
 | 13 | 監視 | §4.4 の 2 つを止め、`FAIL` の数と時刻、`lh-watch.sh` の degraded・faulted・`error` の時刻を記録する |
 | 14 | ノード | 8 台 Ready。Longhorn の Node 4 台が Ready・schedulable |
@@ -765,6 +768,8 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 
 作業をその時刻より前に始めるなら、`fs/h2` を除く 16 本を先に流し、`fs/h2` は消えるのを待ってから流す（§4.10 の 3）。1 回目の §4.11・§4.12・§5.3 もその後になる。待たずに進めたいとき（replica の CR を手で消す、など）は、ユーザーが決める。
 
+**1 回目では**、16 本を済ませた後、ユーザーの承認（runbook の外の操作）で `-r-43fe8619` の CR を手で消してから `fs/h2` を流した（2026-10-21 02:07:58。消す前に `fs/h2` が attached healthy で running の replica が 2 つあることを確かめ、`delete replicas.longhorn.io` だけを流した。後は Replica の CR 2、orphan 0。`fs/h2` の live upgrade は 5 秒で、ほかと同じ形で通った）。
+
 ### 9.6 Docker Hub の pull の上限
 
 匿名の pull は IP ごとに 6 時間で 100 回（2026-10-20 の Docker の文書）。1 回の事前 pull は 44 回。1 回目と 2 回目の事前 pull を 6 時間の中に続けて流すと 88 回になり、ほかの Pod の pull と合わせて上限に近づく。`429` が出たら時間をおく（§4.6）。
@@ -772,6 +777,13 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 ### 9.7 apply は消さない
 
 `kubectl apply -k` は prune しない。前の版の manifest にあり、新しい版に無いリソースは残る（1.12.1・1.13.0 では削除は無い。§5.1、§6.1）。本番には 2022 年の `longhorn-conversion-webhook` の Service が残っていて、今の manifest には無い（害は無い。この作業では触らない）。
+
+### 9.8 manager の入れ替わりで、古い remount の要求が処理される
+
+1 回目の apply の直後（2026-10-20 18:46:02・18:46:04）、新しい longhorn-manager が `homegallery/tumblr-web` の 2 つの Pod を消した（ログは `Deleted pod ... so that Kubernetes will handle remounting volume pvc-0b28d049-...`、`KubernetesPodController.handlePodDeletionIfVolumeRequestRemount`）。`tumblr-data` の `status.remountRequestedAt` はその前日（2026-10-19T09:35:31Z、iscsid の件の後）のままで、消された Pod はそれより前に作られたものだった。古い manager が処理しなかった古い remount の要求を、新しい manager が起動のときに処理したと見ている（確かめていない。同じように古い `remountRequestedAt`（2026-10-19T09:35:29Z）を持ち、それより前に作られた Pod（`ero-web-...-x689d`）もある `ero-data` では、Pod は消されなかった）。
+
+- share-manager は作り直されず、新しい Pod は 4〜40 秒で Running になった（duchamp に載った方は、manager の入れ替わりの間 `FailedAttachVolume` を再試行した）。ユーザーは、記録して続けると判断した（§7 の「想定外の再起動」として一度止めた）
+- **2 回目の前に**、§4.1 で `kubectl --context fraction -n longhorn-system get volumes.longhorn.io -o custom-columns=N:.metadata.name,R:.status.remountRequestedAt` を読み、そのボリュームを使う Pod の `creationTimestamp` が `remountRequestedAt` より前なら、apply の後にその Pod が消されうると見ておく。消されたら§4.8 の 9・10 に記録し、Pod が Running に戻るなら止めない（それ以外の Pod の削除や、戻らないときは§7 で止める）
 
 ## 10. 記録
 
