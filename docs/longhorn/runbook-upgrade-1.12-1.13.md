@@ -399,7 +399,7 @@ dev では確かめていない（BackupTarget が無い）。形は、Longhorn 
    - `Ready` にならず `Error` なら、`status.conditions` を見て止める
    - system backup の中身は Longhorn の CRD・Setting・Volume・PV・PVC・StorageClass・DaemonSet・Deployment など（上流の文書）。Longhorn の Node は含まない
 
-6. braque で、バックアップの置き場所の大きさを記録する（読み取り。`ssh yuanying@192.168.1.131 'sudo du -sh /export/backups/longhorn'`）。
+6. braque で、バックアップの置き場所の大きさを記録する（読み取り。`ssh yuanying@192.168.1.131 'sudo du -sh /export/backups/longhorn'`）。ブロックのファイルが多く、1 回目は約 40 分かかったので、バックグラウンドで流して先に進む。
 
 - スナップショット（`$TAG-*`）は消さずに残す（§11）。バックアップは NFS に残るので、スナップショットを消してもバックアップは消えない。スナップショットは、それより後に書き換えたブロックの分だけ replica のディスクを使う
 - 1 回目と 2 回目の両方のバックアップを、Longhorn の更新が終わって落ち着くまで消さない
@@ -422,13 +422,14 @@ dev の結論の 2。apply の後に containerd が 1.2 GB 前後を pull・展�
    ```sh
    for ip in 192.168.1.134 192.168.1.135 192.168.1.82 192.168.1.83; do
      echo "== $ip $(date -u +%T)"
-     ssh -n yuanying@$ip "for i in $IMGS; do sudo /opt/bin/crictl pull \$i >/dev/null && echo pulled \$i || echo FAIL \$i; done"
+     ssh -n yuanying@$ip "for i in $IMGS; do sudo /opt/bin/crictl --runtime-endpoint unix:///run/containerd/containerd.sock --image-endpoint unix:///run/containerd/containerd.sock pull \$i >/dev/null && echo pulled \$i || echo FAIL \$i; done"
      echo "== $ip done $(date -u +%T)"
    done 2>&1 | tee $D/pull.log
    ```
 
    - 1 台の pull の間、`lh-watch.sh` で replica の `error`・ボリュームの degraded が出ないことを見る。出たら次の台へ進まずに止める（pull そのものも I/O を重くする）
    - `FAIL` が出たら、その台をもう一度流す。`429 Too Many Requests`（Docker Hub の匿名の pull の上限。100 回 / 6 時間 / IP）なら、時間をおいて流し直す。1 回の事前 pull は 44 回（11 × 4 台）
+   - ノードに `/etc/crictl.yaml` が無いので、endpoint を渡さないと `crictl` が既定の endpoint の警告を毎回出す（pull はできる。1 回目の pablo）
    - 全部の `pulled` を確かめる: `ssh -n yuanying@<ip> 'sudo /opt/bin/crictl images | grep -E "longhornio/(longhorn-|csi-|livenessprobe)" | grep -E "<版>|<その回の CSI の版>"'`
 
 - Longhorn の Pod の `imagePullPolicy` は `IfNotPresent`（manifest と、設定 `system-managed-pods-image-pull-policy` の `if-not-present`）なので、apply の後は pull しない
@@ -474,7 +475,7 @@ $K get pods -o wide -w     # 全部が Running・Ready になるまで
 | 1 | manager | `longhorn-manager` の DaemonSet が 4 つとも `<版>`、Ready（`maxUnavailable: 100%` なので 4 台同時に入れ替わる） |
 | 2 | 版の設定 | `$K get settings.longhorn.io current-longhorn-version -o jsonpath='{.value}'` が `<版>`。`default-engine-image`・`default-instance-manager-image` が `<版>` |
 | 3 | engine image | 新しい engine image（`docker.io/longhornio/longhorn-engine:<版>`）が `deployed`。古いもの（`<前の版>`）も残る（`REFCOUNT` はまだ 0 でない） |
-| 4 | instance-manager | 各ノードに `<版>` の instance-manager が 1 つずつ `running`（4 つ）。`<前の版>` のものも、エンジンを持つものは残る（1 回目は 4 つとも。エンジンの無い duchamp のものも replica を持つので残る） |
+| 4 | instance-manager | 各ノードに `<版>` の instance-manager が 1 つずつ `running`（4 つ）。`<前の版>` のものも、エンジンを持つものは残る（1 回目は 4 つとも。エンジンの無い duchamp のものも replica を持つので残る。1 回目では、§4.10 の live upgrade で replica が新しいものに移り切った時点で Longhorn が消した） |
 | 5 | CSI | `longhorn-csi-plugin` 4、`csi-attacher`・`csi-provisioner`・`csi-resizer`・`csi-snapshotter` 3 ずつが新しい版で Running。サイドカーの 1〜3 回の再起動は想定内（`csi.sock` を待つ。dev の記録 §3.2） |
 | 6 | UI・driver-deployer | 新しい版で Running |
 | 7 | ボリューム | **attached のものが全部 healthy**（degraded になったら、faulted でなく rebuild が進んでいれば待つ。§7）。Prometheus の 2 本と `cg-data` は detached |
@@ -598,7 +599,7 @@ diff -r $D/before $D/after > $D/state.diff
 
 | # | 確認 | 合格基準 |
 |---|---|---|
-| 1 | 版 | `current-longhorn-version` が `<版>`。`longhorn-system` の Pod の image が `<版>`（engine-image の DaemonSet は `<版>` のものだけ）。古い instance-manager は、エンジンの残るものだけが `<前の版>` |
+| 1 | 版 | `current-longhorn-version` が `<版>`。`longhorn-system` の Pod の image が `<版>`（engine-image の DaemonSet は `<版>` のものだけ）。古い instance-manager は、エンジンの残るものだけが `<前の版>`。share-manager の Pod は作り直されるまで `<前の版>` のイメージのまま（1 回目は 2 つとも v1.11.2 のまま） |
 | 2 | ボリューム | 17 本とも `status.currentImage` が `<版>`。attached 16 が healthy、detached は `cg-data` だけ（§4.1 と同じ。Prometheus の 2 本は attached に戻っている） |
 | 3 | replica の数 | 各ボリュームの running の replica の数が `numberOfReplicas` と同じ。全体の数が §4.1 と同じ（Prometheus の 2 本は、Pod が別のノードに載ると data locality の rebuild で replica の置き場所が変わる。§4.10 の 2。rebuild が終わっていること） |
 | 4 | `failedAt` | §2.3 の 1 つ（消えていれば 0）のほかに無い |
@@ -608,7 +609,7 @@ diff -r $D/before $D/after > $D/state.diff
 | 8 | iSCSI | 4 台の Longhorn のセッションの数が、そのノードにアタッチされたボリュームの数と同じ（作業の前は chirico 10、oeilvert 5、pablo 1、duchamp 0。Prometheus の 2 本は、戻した Pod のノードで数える）。portal は、どれもそのエンジンのいる instance-manager の IP（古い instance-manager の IP でもよい）。それ以外の portal が無い |
 | 9 | iscsid | 4 台の MainPID が §4.1 の 10 と同じ（この作業では iscsid を再起動しない） |
 | 10 | Pod | クラスタ全体で Running / Completed 以外が無い。Longhorn を使う Pod の restartCount が §4.1 の 12 から増えていない（Prometheus の 2 つは作り直したもの） |
-| 11 | アプリ | `check-apps.sh` が前と同じ。Prometheus の 2 つが Running で、スクレイプが落ちていない（`up == 0` が 0 個）。natsumi（`aki.fraction.jp`、`myao3.fraction.jp`、`natsumi.poissonnerie.dev`）、`www.fraction.jp`、homegallery の Pod、fraction-agents の 6 つ、`aphrael`・`comics` の Pod が Running |
+| 11 | アプリ | `check-apps.sh` が前と同じ。Prometheus の 2 つが Running で、スクレイプが落ちていない（`up == 0` が 0 個。`https://prometheus.fraction.jp/` は認証が要るので、`kubectl --context fraction get --raw '/api/v1/namespaces/monitoring/services/http:kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count(up%3D%3D0)'` で読む。結果が空なら 0）。natsumi（`aki.fraction.jp`、`myao3.fraction.jp`、`natsumi.poissonnerie.dev`）、`www.fraction.jp`、homegallery の Pod、fraction-agents の 6 つ、`aphrael`・`comics` の Pod が Running |
 | 12 | cnidaria | ✋ `netcheck.sh` が通る |
 | 13 | 監視 | §4.4 の 2 つを止め、`FAIL` の数と時刻、`lh-watch.sh` の degraded・faulted・`error` の時刻を記録する |
 | 14 | ノード | 8 台 Ready。Longhorn の Node 4 台が Ready・schedulable |
@@ -766,6 +767,8 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 - 数を合わせるために replica の CR を手で消すのは runbook から外れる操作で、データのある replica に触る
 
 作業をその時刻より前に始めるなら、`fs/h2` を除く 16 本を先に流し、`fs/h2` は消えるのを待ってから流す（§4.10 の 3）。1 回目の §4.11・§4.12・§5.3 もその後になる。待たずに進めたいとき（replica の CR を手で消す、など）は、ユーザーが決める。
+
+**1 回目では**、16 本を済ませた後、ユーザーの承認（runbook の外の操作）で `-r-43fe8619` の CR を手で消してから `fs/h2` を流した（2026-10-21 02:07:58。消す前に `fs/h2` が attached healthy で running の replica が 2 つあることを確かめ、`delete replicas.longhorn.io` だけを流した。後は Replica の CR 2、orphan 0。`fs/h2` の live upgrade は 5 秒で、ほかと同じ形で通った）。
 
 ### 9.6 Docker Hub の pull の上限
 
