@@ -798,8 +798,11 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 ## 11. 後で決めること
 
 - §4.5 のスナップショット（`lh1121-pre-*`、`lh1130-pre-*`）とバックアップを、いつ消すか（段 6 に入ってからなど）。消すのは別に承認を取る
+  - **2026-10-21 ユーザー判断: 消す。** スナップショット、バックアップ、SystemBackup `lh1121-pre`・`lh1130-pre`、空になった BackupVolume 17 個を消した。最後のスナップショット（子が volume-head）の `lh1130-pre-*` 13 個は畳まれず Terminating で残る（ユーザーが許した）。記録は `results/upgrade-1.12-1.13/cleanup.md`
 - `homegallery/cg-data`（2024 年から detached）を残すか
+  - **2026-10-21 ユーザー判断: 残す**（ボリュームもデータも触らない）
 - 1.13.0 の `longhorn-csi-secret-bind` を外すか（§6.2）
 - ノードの containerd に残った Longhorn の古いイメージ（v1.2.4〜v1.11.2）を片付けるか（pablo・duchamp・chirico で数 GB）
+  - **2026-10-21 ユーザー判断: 片付ける。** 4 台で 299 個を消した（`/` の空きが合わせて約 87 GiB 増えた）。v1.13.0 の組と、使用中の v1.11.2 の instance-manager（pablo・chirico・oeilvert）・share-manager（chirico）は残した。記録は `results/upgrade-1.12-1.13/cleanup.md` §2
 - fleet-infra の `infrastructure/longhorn/CLAUDE.md` の手順（エンジンの一括更新、`docker.io/` の無い image の名前、オフラインの更新の注）を、この手順書の形（1 本ずつ、`docker.io/` 付き、事前 pull、NetworkPolicy の確認）に合わせるか
 - 段 6 以降の手順書で、計画 §4.4 の iscsid と iSCSI のセッションの確認をどこまで続けるか（§5.3）
