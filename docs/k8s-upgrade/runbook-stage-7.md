@@ -489,7 +489,7 @@ kubectl --context fraction version
 | 8 | iscsid | MainPID と ActiveEnterTimestamp が前（§4.3 の 1 の `node-state.sh`）と同じ。変わっていたら止める（§2.7、§2.11） |
 | 16 | etcd の版 | 3 台の `/version` が `{"etcdserver":"3.6.15","etcdcluster":"3.6.0","storage":"3.6.0"}` のまま |
 | 17 | etcd のフラグ | 段 6 の手順書 §4.4 の 17 と同じ |
-| 18 | etcd のログ | 段 6 の手順書 §4.4 の 18 と同じ（想定どおりのものの一覧も同じ）。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
+| 18 | etcd のログ | 段 6 の手順書 §4.4 の 18 と同じ（想定どおりのものの一覧も同じ）。起動の直後の `failed to publish local member to cluster through raft` は、数回から 100 回ほど出ることがある（本番の段 7 の .112 は 103 回で、2.5 ミリ秒の間に収まり、直後に `published local member to cluster through raft`）。回数ではなく、`published` が出て続かないことを見る。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
 | 19（新） | kubelet のログ | 起動の直後の項目は段 6 と同じ（etcd の mirror Pod の `already exists`、`Flag --container-runtime-endpoint has been deprecated` など）。dev では止まる前の古い kubelet が `missing content for CA bundle "client-ca-bundle::/etc/kubernetes/pki/ca.crt"` を出した台がある（害は無い）。ほかに増えたものは記録する |
 
 次の 1 台へ進む条件も段 6 の手順書 §4.4 と同じ（すべて合格、全 8 台 Ready、etcd 3/3 healthy で raft index がそろう、Running / Completed 以外の Pod がベースラインから増えていない）。
@@ -709,6 +709,10 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 - **段 7 では働かない。** peer proxy は、版の違う apiserver が並ぶ間に、自分が提供しない API への要求をその API を提供する peer へ回すもの。段 7 の `install kubernetes` は 1.35 → 1.36 の入れ替えで、1.35 の apiserver はこの機能が既定で off なので peer として振る舞わない。入れ替え後は 3 台とも 1.36 で版がそろう
 - `tools/storage-versions.sh` では `/registry/peerserverleases/` は core の `v1` の `ok` として数えられる（§2.5 の 2）
 - **段 8 への申し送り**: 段 8 の `install kubernetes`（1.36 → 1.37）では、apiserver の入れ替えの間に 1.36 と 1.37 の apiserver が並び、両方でこの機能が働く。peer の間の TLS（`--peer-ca-file`、`--peer-advertise-ip`・`--peer-advertise-port`）を porkadot が渡していないときの振る舞い（要求の転送の失敗のログ、503 など）と、`/registry/peerserverleases/` の数を、段 8 の dev の検証で見る
+
+### 8.19 apiserver の grpc の `operation was canceled`（本番の段 7 で見つけたもの）
+
+本番の 1.36 の apiserver は、`W… logging.go:55] [core] … grpc: addrConn.createTransport failed to connect to {Addr: "192.168.1.111:2379", …}. Err: … operation was canceled` を、1 台につき 1 分に 4 行出し続ける。時刻は Prometheus の 2 つのレプリカがその apiserver の `/metrics` を scrape した時刻と一致する（apiserver は metrics を集めるたびに etcd の DB のサイズを読む短命の client を作って閉じ、まだつながっていない `--etcd-servers` の先頭への dial が cancel される）。このコードは v1.35.9 と v1.36.5 で同じで、dev には Prometheus が無いので出ない。害は無い。**止める理由にしない。** apiserver のログの `W`・`E` の行を数えるときは、etcd の起き直しの時刻のものと分けて数える（`results/stage-7/summary.md` §2.6）。
 
 ## 9. 記録
 
