@@ -16,7 +16,7 @@
 manifest は fleet-infra の `infrastructure/longhorn/`（`scripts/update-longhorn.sh` で取ってきた上流の `deploy/longhorn.yaml` と、prod overlay）。本番には Flux が動いておらず、手で `kubectl apply -k infrastructure/longhorn/prod/` する。
 
 - **1 回目**: fleet-infra の PR（ブランチ `fleet-longhorn-1-12-1`。`MANIFEST_VER` 1.12.1 と、prod overlay の NetworkPolicy の直し）をマージした main で流す
-- **2 回目**: 1.13.0 の manifest の fleet-infra の PR（1 回目の後に出す。この手順書の時点ではまだ無い）をマージした main で流す
+- **2 回目**: 1.13.0 の manifest の fleet-infra の PR（#195。`MANIFEST_VER` 1.13.0、prod overlay はそのまま）をマージした main（`353875c`）で流す
 
 この 2 回は dev クラスタ（porkadot-dev、context `test`、K8s v1.34.12）で先に通してある（2026-10-20）。記録は porkadot-dev の `docs/longhorn/upgrade-1.12-1.13.md`（以下「dev の記録」。porkadot-dev#15、`feadd42`）。dev で分かったことは次のとおり。
 
@@ -330,7 +330,7 @@ done | tee -a $D/probe.log &
 
 dev では確かめていない（BackupTarget が無い）。形は、Longhorn の system backup の controller がボリュームのバックアップを作るときと同じ（longhorn-manager v1.11.2 の `controller/system_backup_controller.go` の `createVolumeSnapshot`・`createVolumeBackupFromSnapshot`。Snapshot の CR を `createSnapshot: true` で作り、`readyToUse` になったら、`backup-target`・`backup-volume` の label を付けた Backup の CR を `snapshotName` で作る）。**最初に 1 本（いちばん小さい `data-calendar-keeper-0`）だけ流して形を確かめてから、残りを流す。**
 
-**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので線速でも約 50 分だが、**1 回目の実際は約 22 MB/s で、16 本に約 4 時間 15 分かかった**（`fs/h2` だけで 2 時間 30 分。`results/upgrade-1.12-1.13/1.12.1.md` §3）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は差分なので短い。braque の空き（9.4T）は足りる。
+**見込みの時間**: 初回は全量で、実使用の合計は約 292 GiB（`fs/h2` 162 GiB、`fs/data` 59 GiB、Prometheus 25 GiB ずつ）。ノードと braque は 1 GbE なので線速でも約 50 分だが、**1 回目の実際は約 22 MB/s で、16 本に約 4 時間 15 分かかった**（`fs/h2` だけで 2 時間 30 分。`results/upgrade-1.12-1.13/1.12.1.md` §3）。lz4 で圧縮し、使っていないブロックは送らない。2 回目は前のバックアップからの差分で、16 本に約 6 分だった（いちばん長いのは書き込みの多い Prometheus の 2 本で 2 分半ずつ。`results/upgrade-1.12-1.13/1.13.0.md` §3）。braque の空き（9.4T）は足りる。
 
 1. 名前を決める（回ごとに別にする）。
 
@@ -565,6 +565,7 @@ docs/longhorn/tools/pvcheck.sh down             # 名前空間と PV、Longhorn 
    - `lh-watch.sh` と §4.4 の監視に、そのボリュームの degraded・faulted、`FAIL` が出ていない
    - RWX（10・11）では、share-manager の Pod が作り直されていないこと、`homegallery` の Pod が Running のまま
    - 12（`fs/sites`）の後は `www.fraction.jp`、14（`fs/h2`）の後は `aphrael`・`comics` の Pod が Running のままであること
+   - クラスタ全体の Pod を比べると、Longhorn を使わない Pod の以前からの再起動が入ることがある。2 回目では、braque の NFS を使う `carib2`・`pondo2`・`shja2` の `movies` が、約 3 時間ごとの再起動（exit 2、OOMKilled）を作業の間に 1 回ずつした。その Pod が Longhorn のボリュームを使わず、前の起動からの間隔がいつもと同じなら、§7 の「想定外の再起動」には当たらない（記録して続ける）
 
    rc 1（faulted、または前の確認で断った）・rc 2（timeout）なら、次へ進まずに止める（§7）。
 
@@ -688,11 +689,12 @@ dev の記録 §2.2 のとおり。2 回目の fleet-infra の PR で 1.13.0 の
 ### 6.2 1.13.0 で特に見ること
 
 - **K8s の要件**: 1.34 以上（csi-provisioner v6.3.0）。本番は v1.34.12
-- **`longhorn-global-manager`**: 3 つとも Running・Ready で、chirico・duchamp・oeilvert・pablo のどれかに載る（§2.4。上流は「少なくとも 1 つが載ること」を求める）。1 つも載らなければ止める。dev では、起動の後に leader が lease の更新に失敗して 1 回再起動した（leader election のふだんの動き。dev の記録 §4.1）
-- **CSI のサイドカー**: `longhorn-csi-service-account` で動く（`$K get deploy csi-provisioner -o jsonpath='{.spec.template.spec.serviceAccountName}'`）。§4.9 の `pvcheck.sh` で provision・attach が動くこと
+- **`longhorn-global-manager`**: 3 つとも Running・Ready で、chirico・duchamp・oeilvert・pablo のどれかに載る（§2.4。上流は「少なくとも 1 つが載ること」を求める）。1 つも載らなければ止める。dev では、起動の後に leader が lease の更新に失敗して 1 回再起動した（leader election のふだんの動き。dev の記録 §4.1）。本番では duchamp・chirico・oeilvert に 1 つずつ載り、再起動しなかった（`results/upgrade-1.12-1.13/1.13.0.md` §6）
+- **CSI のサイドカー**: `longhorn-csi-service-account` で動く（`$K get deploy csi-provisioner -o jsonpath='{.spec.template.spec.serviceAccountName}'`）。§4.9 の `pvcheck.sh` で provision・attach が動くこと。本番では、入れ替わりの間のサイドカーの再起動（§9.2）は 0 回だった
 - **`longhorn-csi-secret-bind`**: 既定のまま入れる（§3 の 13）。fleet-infra の StorageClass（gold・silver・bronze、`longhorn`、`longhorn-static`）は `csi.storage.k8s.io/provisioner-secret-*` を使っていない。外すなら、manifest の apply のたびに入るので overlay で除く（上流の Important Notes「Optional restriction of CSI controller Secret access」）。2 回目の後に別に決める
 - **2 世代前の instance-manager**（§3 の 9）: 1 回目の v1.11.2 の instance-manager にエンジンが残っている場合、2 回目の apply の後も、その Pod が `running` のままで、中のエンジンが running であること（`lh-state.sh` の `instancemanagers.tsv`・`engines.tsv`）。v1.11.2 の instance-manager が `error`・`unknown` になったら止める。dev では確かめていない
 - v1.12.1 の instance-manager（1 回目で作られ、replica を持つもの）も、2 回目の live upgrade の後はエンジンの残るものだけになる。4 つの instance-manager に新旧 2〜3 世代が並ぶ形を記録する
+- **本番の 2 回目では**（`results/upgrade-1.12-1.13/1.13.0.md` §6・§8.2）、apply の後に v1.11.2 が 3、v1.12.1 が 4、v1.13.0 が 4 並んだ。live upgrade で replica が v1.13.0 に移り切ると、エンジンを持たない v1.12.1 の 4 つは Longhorn が消した。v1.11.2 の 3 つは running のままで、中のエンジン（chirico 9、oeilvert 4、pablo 1）は v1.13.0 のバイナリで running、iSCSI の portal もそのままだった
 
 ## 7. 止める条件
 
@@ -784,6 +786,7 @@ live upgrade の後、エンジンは detach まで古い instance-manager の P
 
 - share-manager は作り直されず、新しい Pod は 4〜40 秒で Running になった（duchamp に載った方は、manager の入れ替わりの間 `FailedAttachVolume` を再試行した）。ユーザーは、記録して続けると判断した（§7 の「想定外の再起動」として一度止めた）
 - **2 回目の前に**、§4.1 で `kubectl --context fraction -n longhorn-system get volumes.longhorn.io -o custom-columns=N:.metadata.name,R:.status.remountRequestedAt` を読み、そのボリュームを使う Pod の `creationTimestamp` が `remountRequestedAt` より前なら、apply の後にその Pod が消されうると見ておく。消されたら§4.8 の 9・10 に記録し、Pod が Running に戻るなら止めない（それ以外の Pod の削除や、戻らないときは§7 で止める）
+- **2 回目では**（2026-10-21。`results/upgrade-1.12-1.13/1.13.0.md` §1.1・§6）、`remountRequestedAt` より前に作られた Pod は `ero-data` の `ero-web-…-x689d` の 1 つだけで（`tumblr-data` の Pod は 1 回目で作り直されていた）、apply の後も消されなかった。1 回目と同じく、`ero-data` では消されない。古い要求が処理される条件は分かっていない
 
 ## 10. 記録
 
