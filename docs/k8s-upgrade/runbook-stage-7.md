@@ -489,7 +489,7 @@ kubectl --context fraction version
 | 8 | iscsid | MainPID と ActiveEnterTimestamp が前（§4.3 の 1 の `node-state.sh`）と同じ。変わっていたら止める（§2.7、§2.11） |
 | 16 | etcd の版 | 3 台の `/version` が `{"etcdserver":"3.6.15","etcdcluster":"3.6.0","storage":"3.6.0"}` のまま |
 | 17 | etcd のフラグ | 段 6 の手順書 §4.4 の 17 と同じ |
-| 18 | etcd のログ | 段 6 の手順書 §4.4 の 18 と同じ（想定どおりのものの一覧も同じ）。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
+| 18 | etcd のログ | 段 6 の手順書 §4.4 の 18 と同じ（想定どおりのものの一覧も同じ）。起動の直後の `failed to publish local member to cluster through raft` は、数回から 100 回ほど出ることがある（本番の段 7 の .112 は 103 回で、2.5 ミリ秒の間に収まり、直後に `published local member to cluster through raft`）。回数ではなく、`published` が出て続かないことを見る。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
 | 19（新） | kubelet のログ | 起動の直後の項目は段 6 と同じ（etcd の mirror Pod の `already exists`、`Flag --container-runtime-endpoint has been deprecated` など）。dev では止まる前の古い kubelet が `missing content for CA bundle "client-ca-bundle::/etc/kubernetes/pki/ca.crt"` を出した台がある（害は無い）。ほかに増えたものは記録する |
 
 次の 1 台へ進む条件も段 6 の手順書 §4.4 と同じ（すべて合格、全 8 台 Ready、etcd 3/3 healthy で raft index がそろう、Running / Completed 以外の Pod がベースラインから増えていない）。
