@@ -1,7 +1,7 @@
 # etcd に保存されたオブジェクトの版（storage version）
 
 本番 `fraction` の etcd に、今の kube-apiserver が書く版と違う版で保存されたままのオブジェクトがあるかを調べた結果と、調べ方。
-書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5。段 4 は書き直すものが無い。`runbook-stage-4.md` §2.5。段 5 は `install kubernetes` の後に IPAddress。`runbook-stage-5.md` §3.4）。計画の扱いは `plan.md` §6.4。
+書き直しの手順は各段の手順書に書く（段 3 は `runbook-stage-3.md` §2.5。段 4 は書き直すものが無い。`runbook-stage-4.md` §2.5。段 5 は `install kubernetes` の後に IPAddress。`runbook-stage-5.md` §3.4。段 6・段 7 は書き直すものが無い。`runbook-stage-6.md` §2.5、`runbook-stage-7.md` §2.5）。計画の扱いは `plan.md` §6.4。
 
 ## 1. なぜ見るか
 
@@ -88,6 +88,21 @@ kube-apiserver 1.31 は、組み込みのリソースを、そのグループの
 
 ほかの 1.33 の override（`leasecandidates`、`mutatingadmissionpolicies`・`mutatingadmissionpolicybindings`、`clustertrustbundles`、`volumeattributesclasses`、`storagemigrations`、`devicetaintrules`）は、本番にオブジェクトが無い（2026-10-20 の `prefixes.txt` に prefix が無い）。どれかのオブジェクトができたら、スクリプトの `overrides.tsv` に足す。
 
+### 3.2 1.34〜1.36 の override（段 5〜7）
+
+`ResourceEncodingOverrides` のうち、**既定で提供される（GA の）リソースで、保存の版が discovery の preferred と違うもの**は、オブジェクトがあると §4 のスクリプトが `OLD` と数える。段 7 の前に v1.33.13・v1.34.12・v1.35.9・v1.36.5 の `pkg/kubeapiserver/default_storage_factory_builder.go` を読み、次をスクリプトの `overrides.tsv` に入れた（2026-10-21）。
+
+| リソース | GA | 保存の版 | override が外れる版 | スクリプトが期待値にする版 |
+|---|---|---|---|---|
+| `volumeattributesclasses`（`storage.k8s.io`） | 1.34 | `v1beta1`（1.33〜1.35） | 1.36（`v1` で保存する） | 1.33〜1.35 は `v1beta1` |
+| `mutatingadmissionpolicies`、`mutatingadmissionpolicybindings`（`admissionregistration.k8s.io`） | 1.36 | `v1beta1`（1.36。コードに `TODO: remove in 1.37`） | 1.37 の見込み（段 8 で確かめる） | 1.36 は `v1beta1` |
+
+- etcd のキーは、組み込みのリソースと同じく `/registry/<リソース>/` の下（`/registry/mutatingadmissionpolicies/` など）
+- 1.35 の `ResourceEncodingOverrides` は 1.34 のものに `scheduling/workloads`（v1alpha1）を足し、`mutatingadmissionpolicies`・…`bindings` と `podcertificaterequests`・`storagemigrations` を `v1alpha1` から `v1beta1` にしたもの。1.36 は `volumeattributesclasses` を外し、`workloads` を `v1alpha2` にし、`resourcepoolstatusrequests`（v1alpha3）と `podgroups`（v1alpha2）を足した
+- ほかの override（`leasecandidates`、`clustertrustbundles`、`podcertificaterequests`、`storagemigrations`、`devicetaintrules`、`workloads`、`podgroups`、`resourcepoolstatusrequests`）は、既定では提供されない beta・alpha の API で、本番にはオブジェクトができない。スクリプトには入れていない。feature gate や `--runtime-config` で有効にしたら、ここを読み直す
+- **本番には `volumeattributesclasses`・`mutatingadmissionpolicies`・`mutatingadmissionpolicybindings` のオブジェクトは無い**（2026-10-21 12:35Z。etcd の `/registry/` の下にキーが無い）。1.35 の apiserver は MutatingAdmissionPolicy を提供していない（beta で既定 off）。上の表は、段 7 の後にこうしたオブジェクトを作っても、`OLD` と誤って数えないためのもの
+- 段 7（1.36）で新しく出る prefix `/registry/peerserverleases/`（`UnknownVersionInteroperabilityProxy` が書く core の `v1` の `Endpoints`。`runbook-stage-7.md` §8.18）は、core の `v1` の `ok` として数えられる（porkadot-dev の `verification-0.36-rc.md`）
+
 ## 4. 調べ方（`tools/`）
 
 | ファイル | 中身 |
@@ -103,8 +118,8 @@ docs/k8s-upgrade/tools/storage-versions.sh /tmp/storage-versions-$(date -u +%Y%m
 
 - 読み取りだけ（`etcdctl get` と `kubectl get`）。SSH は `ubuntu@192.168.1.111`（`ETCD_HOST` で変えられる）、kubectl は `--context fraction`（`fraction-auditor` で足りる）。サンドボックスの中で流せる
 - etcd の全範囲を 1 回で読むと Raspberry Pi の etcd に重いので、prefix ごとに 1 秒おいて読む（2026-10-19 は 1 分 36 秒）
-- 出力: `summary.tsv`（prefix、値の形、版、kind、数、`ok` / `OLD`）、`old.tsv`（古い版のキーと期待値）、`crds.tsv`（CRD、storage の版、`storedVersions`、`ok` / `MULTI`）、`objects.tsv`（全キーの版）、`overrides.tsv`（そのサーバーの版で `preferredVersion` の代わりに使った期待値。1.33 では `ipaddresses`・`servicecidrs` の 2 行、ほかの版では空）。**値は書かない**が、キーには Secret の名前も入るので、記録に写すのは prefix・キー・版だけにする
-- `OLD: 0` と `CRDs with more than one stored version: 0` が、書き直しの後と各段の完了の確認の合格基準（各段の手順書 §6）。§3.1 の override をスクリプトの期待値に入れたので、段 4（1.33）でもこの基準のまま使える
+- 出力: `summary.tsv`（prefix、値の形、版、kind、数、`ok` / `OLD`）、`old.tsv`（古い版のキーと期待値）、`crds.tsv`（CRD、storage の版、`storedVersions`、`ok` / `MULTI`）、`objects.tsv`（全キーの版）、`overrides.tsv`（そのサーバーの版で `preferredVersion` の代わりに使った期待値。1.33 では `ipaddresses`・`servicecidrs`・`volumeattributesclasses` の 3 行、1.34・1.35 では `volumeattributesclasses` の 1 行、1.36 では `mutatingadmissionpolicies`・`mutatingadmissionpolicybindings` の 2 行、ほかの版では空。§3.1、§3.2）。**値は書かない**が、キーには Secret の名前も入るので、記録に写すのは prefix・キー・版だけにする
+- `OLD: 0` と `CRDs with more than one stored version: 0` が、書き直しの後と各段の完了の確認の合格基準（各段の手順書 §6）。§3.1・§3.2 の override をスクリプトの期待値に入れたので、段 4（1.33）・段 7（1.36）でもこの基準のまま使える
 - 期待値はそのとき VIP の先にいる apiserver の版で決まる。`install kubernetes` の rollout の途中（版が混ざる間）には流さない
 
 ## 5. 書き直し方と、kube-storage-version-migrator を使わない理由

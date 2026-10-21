@@ -74,17 +74,37 @@ awk -F'\t' '{ print $1 "\t" $4 "\t" $5 "\t" (($5 == $4) ? "ok" : "MULTI") }' "$o
 #    Built-in resources that kube-apiserver stores in an older version than
 #    the preferred one (ResourceEncodingOverrides in
 #    pkg/kubeapiserver/default_storage_factory_builder.go), keyed on the minor
-#    version of the server. Only the ones that can have objects in the cluster
-#    are listed. 1.33 stores the ServiceCIDR and IPAddress objects it creates
-#    as v1beta1 so that 1.32 can still read them; 1.34.0 drops the override.
+#    version of the server. Only the resources served by default whose
+#    override differs from the preferred version are listed (the others, such
+#    as leasecandidates and clustertrustbundles, are beta APIs that are off by
+#    default and cannot have objects here).
+#    - 1.33 stores the ServiceCIDR and IPAddress objects it creates as v1beta1
+#      so that 1.32 can still read them; 1.34.0 drops the override.
+#    - 1.33-1.35 store VolumeAttributesClass (GA in 1.34) as v1beta1; 1.36
+#      drops the override.
+#    - 1.36 stores MutatingAdmissionPolicy and MutatingAdmissionPolicyBinding
+#      (GA in 1.36) as v1beta1 ("TODO: remove in 1.37").
 minor=$(kubectl --context "$ctx" version -o json | jq -r '.serverVersion.minor' | tr -dc '0-9')
-case $minor in
-  33)
-    printf '%s\t%s\t%s\n' \
-      /registry/ipaddresses/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33' \
-      /registry/servicecidrs/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33'
-    ;;
-esac > "$out/overrides.tsv"
+{
+  case $minor in
+    33)
+      printf '%s\t%s\t%s\n' \
+        /registry/ipaddresses/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33' \
+        /registry/servicecidrs/ networking.k8s.io/v1beta1 'ResourceEncodingOverrides 1.33'
+      ;;
+  esac
+  case $minor in
+    33|34|35)
+      printf '%s\t%s\t%s\n' \
+        /registry/volumeattributesclasses/ storage.k8s.io/v1beta1 "ResourceEncodingOverrides 1.$minor"
+      ;;
+    36)
+      printf '%s\t%s\t%s\n' \
+        /registry/mutatingadmissionpolicies/ admissionregistration.k8s.io/v1beta1 'ResourceEncodingOverrides 1.36' \
+        /registry/mutatingadmissionpolicybindings/ admissionregistration.k8s.io/v1beta1 'ResourceEncodingOverrides 1.36'
+      ;;
+  esac
+} > "$out/overrides.tsv"
 
 # 4. Compare. A custom resource key is /registry/<group>/<plural>/...;
 #    a prefix in overrides.tsv is compared with the version there; everything
