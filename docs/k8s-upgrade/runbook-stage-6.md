@@ -160,6 +160,7 @@ curl -fsSL https://dl.k8s.io/release/stable-1.35.txt     # v1.35.9
   ```
 
 - `tools/node-state.sh`・`tools/storage-versions.sh` は段 5 のまま。1.35 でも `overrides.tsv` は空のまま（dev の見つけたことの 4）
+- **cnidaria の手順書の `verify-nodes.sh` は、nft を `cnidaria-cni:v0.1.0` のイメージで流す**（cnidaria-cni-dev の `notes/fraction-runbook/common.sh` の `IMAGE`）。本番の段 6 の当日、oeilvert の containerd からこのイメージが kubelet の image GC で消えていて、oeilvert だけ `FAIL nft table inet cnidaria exists (image nft)`（`ctr: image … not found`）になった（`results/stage-6/baseline.md` §8）。スクリプトを作業端末の `/tmp` に写し、`IMAGE` を今の DaemonSet の `v0.1.1` にして流す（元のスクリプトは別のタスクのものなので書き換えない）
 
 ### 1.9 NetworkPolicy の確認（一時的な名前空間） ✋
 
@@ -356,6 +357,7 @@ open-iscsi の hold（`51fraction-hold-open-iscsi`）は 2026-10-21 に消した
 - 段 6 の作業の途中に unattended-upgrades が流れると、`install kubelet` の前と後の `node-state.sh` の間に iscsid の PID が変わりうる。**作業は unattended-upgrades の時間帯を避ける**: `apt-daily-upgrade.timer` は 06:00 + 最大 60 分（`RandomizedDelaySec=60m`）。worker はホストの時刻が UTC なので **06:00〜07:00Z**、control-plane は JST なので **21:00〜22:00Z**。当日は §2.2 の 28 で各台の次の時刻を読み、作業の時間と重ならないことを確かめる
 - 1 台の前と後の間に iscsid の PID が変わったときは、止めてから、`journalctl -u iscsid`、`/var/log/apt/history.log`、`/var/log/unattended-upgrades/unattended-upgrades-dpkg.log` を見て、**porkadot の `install kubelet` によるものか（`install-pkgs.sh` の出力と時刻）、unattended-upgrades の needrestart によるものか**を記録して報告する。続けるかはユーザーが決める（エンジンは v1.13.0 なので、needrestart によるものなら、セッションが今の instance-manager の IP のままでボリュームが healthy であることを確かめて続ける見込み）
 - systemd-networkd の再起動は、cnidaria の `no route` のログ（§8.1）と同じものを出しうる。監視の FAIL と突き合わせるときに見る
+- 本番の段 6 では、`install kubelet` の後に `apt-daily-upgrade.timer` の次の時刻が 8 台とも引き直されていた（`install kubelet` の `daemon-reload` で、systemd がランダムな遅れを選び直したものと見ている）。時間帯（06:00〜07:00 のホストの時刻）は変わらないが、作業の前に読んだ「次の時刻」は当てにしない（`results/stage-6/summary.md` §2.3）
 - unattended-upgrades を止める・apt を手で流すのは、runbook の外の操作（§0）。段 6 では止めない
 
 ## 3. control-plane のマニフェストを上げる（`install kubernetes`）
@@ -466,7 +468,7 @@ kubectl --context fraction version
 | 8 | iscsid | MainPID と ActiveEnterTimestamp が前（§4.3 の 1 の `node-state.sh`）と同じ。変わっていたら止める（§2.7、§2.11） |
 | 16 | etcd の版 | 3 台の `/version` が `{"etcdserver":"3.6.15","etcdcluster":"3.6.0","storage":"3.6.0"}` のまま |
 | 17 | etcd のフラグ | 段 5 の手順書 §4.4 の 17 と同じ（`--feature-gates=InitialCorruptCheck=true`、`--watch-progress-notify-interval=5s`、`--snapshot-count=10000`、`--experimental-` が無い） |
-| 18 | etcd のログ | 想定どおりのもの: 起き直しの直後の `bind: address already in use`（落ちたコンテナ）、ほかのメンバーの `lost TCP streaming connection`・`peer became inactive`（数秒）、前から出ている `check file permission`・`Running http and grpc server on single port`・`simple token is not cryptographically signed`。3.5 との混在のものは出ない。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
+| 18 | etcd のログ | 想定どおりのもの: 起き直しの直後の `bind: address already in use`（落ちたコンテナ）、ほかのメンバーの `lost TCP streaming connection`・`peer became inactive`（数秒）、前から出ている `check file permission`・`Running http and grpc server on single port`・`simple token is not cryptographically signed`。新しいコンテナの起動の直後の `failed to publish local member to cluster through raft`（同じミリ秒の間に数回。段 5 の手順書 §4.1）と、追いつく間の `request stats`・`apply request took too long`・`waiting for ReadIndex response took too long`・`ignored out-of-date read index response`（本番の段 6 の .112）。3.5 との混在のものは出ない。ほかの warn・error の種類が増えたら記録し、続くものがあれば止める |
 
 次の 1 台へ進む条件も段 5 の手順書 §4.4 と同じ（すべて合格、全 8 台 Ready、etcd 3/3 healthy で raft index がそろう、Running / Completed 以外の Pod がベースラインから増えていない）。
 
