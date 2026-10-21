@@ -710,6 +710,10 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 - `tools/storage-versions.sh` では `/registry/peerserverleases/` は core の `v1` の `ok` として数えられる（§2.5 の 2）
 - **段 8 への申し送り**: 段 8 の `install kubernetes`（1.36 → 1.37）では、apiserver の入れ替えの間に 1.36 と 1.37 の apiserver が並び、両方でこの機能が働く。peer の間の TLS（`--peer-ca-file`、`--peer-advertise-ip`・`--peer-advertise-port`）を porkadot が渡していないときの振る舞い（要求の転送の失敗のログ、503 など）と、`/registry/peerserverleases/` の数を、段 8 の dev の検証で見る
 
+### 8.19 apiserver の grpc の `operation was canceled`（本番の段 7 で見つけたもの）
+
+本番の 1.36 の apiserver は、`W… logging.go:55] [core] … grpc: addrConn.createTransport failed to connect to {Addr: "192.168.1.111:2379", …}. Err: … operation was canceled` を、1 台につき 1 分に 4 行出し続ける。時刻は Prometheus の 2 つのレプリカがその apiserver の `/metrics` を scrape した時刻と一致する（apiserver は metrics を集めるたびに etcd の DB のサイズを読む短命の client を作って閉じ、まだつながっていない `--etcd-servers` の先頭への dial が cancel される）。このコードは v1.35.9 と v1.36.5 で同じで、dev には Prometheus が無いので出ない。害は無い。**止める理由にしない。** apiserver のログの `W`・`E` の行を数えるときは、etcd の起き直しの時刻のものと分けて数える（`results/stage-7/summary.md` §2.6）。
+
 ## 9. 記録
 
 `results/stage-7/` に、ベースライン（`baseline.md`。§2.4 のバックアップ、§2.5 の storage version と MutatingAdmissionPolicy、§2.9 の cgroup、§2.10 の resolv.conf、§2.11 の unattended-upgrades の時刻と 4 台の iscsid、§2.12 の StrictIPCIDRValidation も）、`install kubernetes`（`control-plane.md`。§3.3 の 13〜20 と CoreDNS の答え、§4.2 のバックアップも）、各台（`<ノード>.md`。control-plane は `192.168.1.11N.md`）、全体のまとめ（`summary.md`。§6 の v1 Endpoints の warning の出どころの表と metrics の確認も）を残す。各台の雛形は `results/stage-7/template.md`。
