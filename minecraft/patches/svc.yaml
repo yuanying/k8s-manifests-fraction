@@ -5,6 +5,6 @@ metadata:
   name: bds
 spec:
   type: LoadBalancer
-  loadBalancerIP: 2405:6581:8580:301:ace::9991
+  loadBalancerIP: 2405:6580:6740:ac01:ace::9991
   ipFamilies:
   - IPv6
