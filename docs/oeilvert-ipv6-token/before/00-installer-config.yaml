@@ -1,0 +1,19 @@
+network:
+  ethernets:
+    enp2s0:
+      dhcp4: false
+      dhcp6: false
+      accept-ra: false
+      addresses:
+      - 192.168.1.82/16
+      - 192.168.1.182/16
+      - 2405:6580:6740:ac01::183/64
+      routes:
+      - to: default
+        via: 192.168.0.1
+      - to: default
+        via: 2405:6580:6740:ac01::1
+      nameservers:
+        addresses:
+        - 192.168.0.1
+  version: 2
