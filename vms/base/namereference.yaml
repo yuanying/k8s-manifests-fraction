@@ -1,9 +1,0 @@
-nameReference:
-- kind: DataVolume
-  fieldSpecs:
-  - kind: VirtualMachine
-    path: spec/template/spec/volumes/dataVolume/name
-- kind: PersistentVolumeClaim
-  fieldSpecs:
-  - kind: VirtualMachine
-    path: spec/template/spec/volumes/persistentVolumeClaim/claimName

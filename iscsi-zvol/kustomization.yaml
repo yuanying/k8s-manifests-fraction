@@ -1,4 +1,0 @@
-commonLabels:
-  region: fraction
-resources:
-  - ../base/iscsi-zvol

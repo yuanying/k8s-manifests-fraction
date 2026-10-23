@@ -1,8 +1,0 @@
-commonLabels:
-  region: fraction
-  app: sites
-namespace: sites
-resources:
-- svc.yaml
-- sites.yaml
-- pvc.yaml
