@@ -126,7 +126,8 @@ BUNDLE_GEMFILE=$P/Gemfile bundle exec $P/exe/porkadot <サブコマンド> --con
 
 - 始める前に `BUNDLE_GEMFILE=$P/Gemfile bundle exec $P/exe/porkadot help` が動くことを確かめる
 - 作業ツリーの `assets/` と `porkadot.yaml` に PR の外の変更が無いこと（`git status --short assets porkadot.yaml` が空）。メインの checkout にほかの作業があれば、master の別の worktree を作ってそこで流す
-- 段 8 で流す porkadot のコマンドは、`etcd backup`、`install kubernetes --node 192.168.1.111`、`install kubelet --node <ノード>` の 3 つだけ。**`install all`、`--node` なしの `install kubelet` と `install kubernetes`、`render`（特に `render all` と `render certs`）、`setup-node`、`setup-containerd`、`etcd restore`（§7.4 の承認を得たときだけ）は流さない**
+- **`install kubelet --node` には `porkadot.yaml` の `nodes` のキーを渡す**: control-plane は IP（`192.168.1.111`〜`113`）、worker は名前（`pablo`、`oeilvert`、`braque`、`duchamp`、`chirico`）。**worker に IP を渡してはいけない。** porkadot 0.37.0 の `install kubelet` は、キーに無い `--node` をはじかず（`KubeletList#[]` が nil を返し、`install hosts: nil` が全ノードを選ぶ）、`--node` なしと同じく全ノードに流す。本番の段 8 では、pablo に `--node 192.168.1.134` を渡して 8 台に流れた（`results/stage-8/workers.md` §1）。流す前に `grep -nE '^  [^ ]+:$' porkadot.yaml` でキーを確かめる
+- 段 8 で流す porkadot のコマンドは、`etcd backup`、`install kubernetes --node 192.168.1.111`、`install kubelet --node <ノードのキー>` の 3 つだけ。**`install all`、`--node` なしの `install kubelet` と `install kubernetes`、`render`（特に `render all` と `render certs`）、`setup-node`、`setup-containerd`、`etcd restore`（§7.4 の承認を得たときだけ）は流さない**
 - **0.36.0 以前の porkadot で `install kubelet` を流さない**（etcd のマニフェストが 3.6.15 になる。§7）
 - **ノードに入る porkadot のコマンドもサンドボックスの中で流す**（0.37.0 の SSH は 0.36.0 と同じ）。当日の流す前の確かめ方は段 2 の手順書 §1.4 のスクリプト（`P` を 0.37.0 の置き場にする）。8 台とも hostname を返すこと
 
@@ -178,7 +179,7 @@ gh api repos/etcd-io/etcd/releases --jq '.[] | select(.tag_name|test("^v3\\.7\\.
 段 7 の手順書 §1.8 と同じ（cnidaria の手順書の `verify-nodes.sh`・`netcheck.sh`・`check-apps.sh`、`tools/node-state.sh`、`tools/storage-versions.sh`、`tools/dns-check.sh`、`tools/ipcidr-scan.py`）。違いは次のとおり。
 
 - **`tools/storage-versions.sh` をこの PR で直した**。`overrides.tsv` に 1.37 の場合（4 行）を足した（§2.5、`storage-versions.md` §3.2）。1.36 の 2 行は 1.37 では出ない。合格の基準は `OLD: 0` のまま
-- **cnidaria の手順書の `verify-nodes.sh` は、段 7 と同じく写しの `IMAGE` を `cnidaria-cni:v0.1.1` にして流す**（段 7 の手順書 §1.8）
+- **cnidaria の手順書の `verify-nodes.sh` は、段 7 と同じく写しの `IMAGE` を `cnidaria-cni:v0.1.1` にして流す**（段 7 の手順書 §1.8）。**`check-apps.sh` の `CHECK_URLS` の v6 も古いプレフィックス（`2405:6581:8580:301:ace::200`）のままなので、`http://[2405:6580:6740:ac01:ace::200]/` に替える**。本番の段 8 では、`common.sh` を書き換えず、`RUNBOOK_ENV` に `IMAGE`・`CHECK_URLS`・`FRACTION` を上書きする env のファイルを渡して流した
 - `tools/ipcidr-scan.py` は、段 8 では §6 で 1 回流して `# findings: 0` のままであることを見るだけ（StrictIPCIDRValidation は 1.36 から。段 7 の手順書 §2.12）
 
 ### 1.9 NetworkPolicy の確認（一時的な名前空間） ✋
@@ -243,6 +244,7 @@ Longhorn v1.13.0 の要件は **Kubernetes >= v1.34**（上流の文書 `https:/
 - 30（新）: **kubelet の設定**: 8 台の `/etc/systemd/system/kubelet.service` に `--container-runtime-endpoint` がある、`/var/lib/kubelet/config.yaml` に `containerRuntimeEndpoint` が無い、この 2 つのファイルの md5 が PR の前の master の `assets/kubelet/<ノード>/` と同じ、`journalctl -u kubelet -b` の `Flag --container-runtime-endpoint has been deprecated` の数（§4.4 の 20 の比べる元）
 - 31（新）: **MetalLB の pool**: `kubectl get ipaddresspools.metallb.io -n metallb-system first-pool -o yaml` の `addresses` が `192.168.1.101/32`、`192.168.1.190-192.168.1.254`、`2405:6580:6740:ac01:ace::/96` で、`assets/kubernetes/manifests/addons/metallb/metallb.config.yaml` と同じ（§2.8）
 - 32（新）: **apiserver の grpc の warning**: 3 台の apiserver のログの直近 10 分の `operation was canceled` の数（段 7 の手順書 §8.19。2026-10-23 14:2xZ は 37〜39 行。1 分に 4 行）
+- 33（新。本番の段 8 で足した）: **kubelet の `cpu_manager_state`**: 8 台の `sudo cat /var/lib/kubelet/cpu_manager_state` と `ls -l` の日付。policy が `none` のとき、1.36 の kubelet の書いた形は `{"policyName":"none","defaultCpuSet":"","checksum":1353318690}`。**checksum が違う（古い kubelet の書いたもの）台があれば、その台の `install kubelet` の前に止める**（1.37 の kubelet が読めずに起きない。§8.23）
 
 ### 2.3 VIP と LoadBalancer、etcd の health を見る
 
@@ -597,6 +599,10 @@ done
 
 段 7 の手順書 §5.2 と同じ（§8.12 の Pod の削除も同じ扱い）。段 7 の本番では 1 台 20 秒〜35 秒だった。段 8 は etcd の tarball も落とすので、少し長くなりうる。
 
+- **`--node` にはノードの名前を渡す**（`porkadot install kubelet --node pablo`。IP ではない。§1.4）。流した後に porkadot のログの SSH 先（`as yuanying@<IP>`）がその台だけであることを確かめる
+- 流す前に、その台の `cpu_manager_state` が §2.2 の 33 の形であることを確かめる（§8.23）
+- 本番の段 8 では、pablo に IP を渡して 5 台が同時に上がった。各台の確認は後からまとめて行い、合格した（`results/stage-8/workers.md`）
+
 ### 5.3 1 台ごとの確認
 
 段 7 の手順書 §5.3 と同じ。次を読み替え、20 を足す。
@@ -852,7 +858,7 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 
 ### 8.19 apiserver の grpc の `operation was canceled`
 
-段 7 の手順書 §8.19 と同じ。2026-10-23 14:2xZ にも、1.36 の 3 台の apiserver が 10 分に 37〜39 行（1 分に 4 行）出していた（段 7 の後も続いている）。1.37 の apiserver も、Prometheus の scrape のたびに同じ形で出る見込み。止める理由にしない。apiserver のログの `W`・`E` の行を数えるときは、etcd の起き直しの時刻のものと分けて数える。
+段 7 の手順書 §8.19 と同じ。2026-10-23 14:2xZ にも、1.36 の 3 台の apiserver が 10 分に 37〜39 行（1 分に 4 行）出していた（段 7 の後も続いている）。**本番の段 8 では、1.37 の apiserver は出さなかった**（`install kubernetes` の後と §6 の完了の確認の時点で、3 台とも 0 行）。止める理由にしない。apiserver のログの `W`・`E` の行を数えるときは、etcd の起き直しの時刻のものと分けて数える。
 
 ### 8.20 etcd 3.7 の etcdctl の出力
 
@@ -872,6 +878,18 @@ kubelet は kube-apiserver より新しくてはいけないので、**kubelet �
 - `kubelet.service` の変更は、`install kubelet` が `daemon-reload` してから kubelet を再起動するので、その場で効く
 - 戻すと（0.36.0 の `install kubelet`）フラグが戻り、config の値より優先する（§7.1）
 - フラグは 1.38 で削除される見込み（計画 §7）。段 8 の後の kubelet の起動時の warning は 0 になる（§6）
+
+### 8.23 古い `cpu_manager_state` で 1.37 の kubelet が起きない（本番の段 8 で見つけたもの）
+
+- 本番の oeilvert の `/var/lib/kubelet/cpu_manager_state` は 2020-06-22 に書かれたもの（`{"policyName":"none","defaultCpuSet":"","checksum":3242152201}`）で、中身はほかの台と同じだが checksum が古い kubelet の計算のものだった。1.36 までの kubelet は読めていたが、**1.37.1 の kubelet は v4・v3・v2 のどの形でも読めず、`Could not initialize checkpoint manager … checkpoint is corrupted, please drain this node and delete the CPU manager checkpoint file` → `Failed to start ContainerManager` で起動と exit を繰り返した**（`results/stage-8/workers.md` §2）。ほかの 7 台（`checksum` 1353318690）は v2 → v3 → v4 に移せた
+- 直し方（runbook から外れる操作。本番の段 8 ではユーザーの承認を得て流した）: `sudo mv -n /var/lib/kubelet/cpu_manager_state /var/lib/kubelet/cpu_manager_state.bak-<印>`。kubelet は systemd の自動再起動（10 秒おき）で起き、policy `none` の空の状態を v4 の形で書き直す。コンテナは再起動しない（本番の段 8 で Pod の差分 0）
+- 起きない間もコンテナは動き続けるが、長引けば Node が NotReady になり Pod が退避されうる。§2.2 の 33 で前もって見つけて、その台の `install kubelet` の前に退避の承認を取る
+- `memory_manager_state` は古い形（2022 年）でも、1.37 の kubelet は `V2 checkpoint for memory manager is corrupt, falling back to V1` の後に v1 → v3 へ移せる（8 台とも、この `E` の行を 1 回出す。害は無い）
+- dev の VM は新しく、古い形のファイルを持っていないので、dev では起きなかった
+
+### 8.24 etcd の mirror Pod の作り直しが遅れることがある（本番の段 8 で見つけたもの）
+
+本番の .112 では、新しい kubelet が古い mirror Pod を消した後、新しい mirror Pod が API に現れるまで約 87 秒かかった（kubelet の次の同期まで。`results/stage-8/192.168.1.112.md` の注）。その間も etcd のコンテナは動いていて、3/3 healthy だった。§4.4 の 5・7 で mirror Pod が無いときは、1〜2 分待って読み直す。また、本番の段 8 では 3 台とも etcd 3.7.3 の最初のコンテナが落ちずに起き、restartCount は 0 だった
 
 ## 9. 記録
 
