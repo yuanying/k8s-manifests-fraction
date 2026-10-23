@@ -81,7 +81,10 @@ data:
         }
         prometheus :9153
         forward . /etc/resolv.conf
-        cache 30
+        cache 30 {
+            disable success cluster.local
+            disable denial cluster.local
+        }
         loop
         reload
         loadbalance

@@ -17,6 +17,7 @@ cgroupDriver: systemd
 clusterDNS:
 - 10.254.0.10
 clusterDomain: cluster.local
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
 cpuManagerReconcilePeriod: 0s
 evictionPressureTransitionPeriod: 0s
 fileCheckFrequency: 0s
