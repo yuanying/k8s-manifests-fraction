@@ -8,7 +8,7 @@ spec:
   addresses:
   - 192.168.1.101/32
   - 192.168.1.190-192.168.1.254
-  - 2405:6581:8580:301:ace::/96
+  - 2405:6580:6740:ac01:ace::/96
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
