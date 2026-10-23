@@ -1,5 +1,0 @@
-commonLabels:
-  region: fraction
-bases:
-- ../base/pvc
-
