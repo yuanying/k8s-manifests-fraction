@@ -68,7 +68,7 @@ else
   echo "CNI plugins ${CNI_VERSION} already installed"
 fi
 
-RELEASE="v1.36.5"
+RELEASE="v1.37.1"
 
 fetch_kubectl() {
   curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl -o $1/kubectl
@@ -80,7 +80,7 @@ fetch_kubelet() {
 }
 install_bin kubelet ${RELEASE} fetch_kubelet
 
-ETCD_VER="3.6.15"
+ETCD_VER="3.7.3"
 # etcdctl and etcdutl come from the same etcd release archive.
 fetch_etcd() {
   curl -fL https://github.com/etcd-io/etcd/releases/download/v${ETCD_VER}/etcd-v${ETCD_VER}-linux-${architecture}.tar.gz \
@@ -90,7 +90,7 @@ fetch_etcd() {
 install_bin etcdctl ${ETCD_VER} fetch_etcd
 install_bin etcdutl ${ETCD_VER} fetch_etcd
 
-CRICTL_VER="v1.36.0"
+CRICTL_VER="v1.37.0"
 fetch_crictl() {
   curl -fL https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VER}/crictl-${CRICTL_VER}-linux-${architecture}.tar.gz \
     -o $1/crictl.tar.gz

@@ -83,7 +83,12 @@ awk -F'\t' '{ print $1 "\t" $4 "\t" $5 "\t" (($5 == $4) ? "ok" : "MULTI") }' "$o
 #    - 1.33-1.35 store VolumeAttributesClass (GA in 1.34) as v1beta1; 1.36
 #      drops the override.
 #    - 1.36 stores MutatingAdmissionPolicy and MutatingAdmissionPolicyBinding
-#      (GA in 1.36) as v1beta1 ("TODO: remove in 1.37").
+#      (GA in 1.36) as v1beta1 ("TODO: remove in 1.37"); 1.37 drops the
+#      override.
+#    - 1.37 stores ClusterTrustBundle, PodCertificateRequest,
+#      StorageVersionMigration and DeviceTaintRule (GA and on by default in
+#      1.37) in the version before v1. The 1.37 controller-manager creates one
+#      ClusterTrustBundle (kubernetes.io:kube-apiserver-serving:<hash>).
 minor=$(kubectl --context "$ctx" version -o json | jq -r '.serverVersion.minor' | tr -dc '0-9')
 {
   case $minor in
@@ -102,6 +107,13 @@ minor=$(kubectl --context "$ctx" version -o json | jq -r '.serverVersion.minor' 
       printf '%s\t%s\t%s\n' \
         /registry/mutatingadmissionpolicies/ admissionregistration.k8s.io/v1beta1 'ResourceEncodingOverrides 1.36' \
         /registry/mutatingadmissionpolicybindings/ admissionregistration.k8s.io/v1beta1 'ResourceEncodingOverrides 1.36'
+      ;;
+    37)
+      printf '%s\t%s\t%s\n' \
+        /registry/clustertrustbundles/ certificates.k8s.io/v1beta1 'ResourceEncodingOverrides 1.37' \
+        /registry/podcertificaterequests/ certificates.k8s.io/v1beta1 'ResourceEncodingOverrides 1.37' \
+        /registry/storageversionmigrations/ storagemigration.k8s.io/v1beta1 'ResourceEncodingOverrides 1.37' \
+        /registry/devicetaintrules/ resource.k8s.io/v1beta2 'ResourceEncodingOverrides 1.37'
       ;;
   esac
 } > "$out/overrides.tsv"
