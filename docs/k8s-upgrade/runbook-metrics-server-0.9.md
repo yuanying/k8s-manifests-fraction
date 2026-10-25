@@ -228,7 +228,8 @@ cat $D/dry-run.txt
 ```
 
 - `diff` の rc は 1（差分あり）。**rc が 1 より大きければ、差分ではなくエラーなので止める**
-- 差分は **Deployment の image（v0.7.2 → v0.9.0）と generation（1 → 2）、last-applied の注釈の中の image、Service の port の `appProtocol: https` だけ**（dev の `diff-2-baecff7.txt` と同じ形）。ほかの差、ほかのオブジェクトの差があれば止める
+- 差分は **Deployment の image（v0.7.2 → v0.9.0）と generation（1 → 2）、Service の port の `appProtocol: https` だけ**（dev の `diff-2-baecff7.txt` と同じ形）。ほかの差、ほかのオブジェクトの差があれば止める
+- last-applied の注釈は diff に出ない（`kubectl diff` の MERGED 側は注釈を書き換えない。dev でも本番でも同じ。2026-10-25 の本番の作業で確かめた）
 - `--dry-run=server` は rc 0 で、`service/metrics-server configured (server dry run)`、`deployment.apps/metrics-server configured (server dry run)`、ほかの 7 つは `unchanged (server dry run)`。`created` の行があれば止める
 
 ### 2.7 時間帯
