@@ -327,7 +327,7 @@ CRD を持つもの（kube-prometheus-stack の `monitoring.coreos.com`、MetalL
 |---|---|---|---|---|
 | kube-prometheus-stack | chart 85.2.1（operator v0.90.1） | chart 92.10.1（operator v0.94.1） | fleet-infra `scripts/update-kube-prometheus.sh` | major が 7 つ上がる。CRD を先に更新する。各 major の upgrade notes を読む |
 | metrics-server | v0.7.2 | v0.9.0 | fleet-infra `scripts/update-metrics-server.sh` | 0.9.x は 1.34 以上。fleet-infra の README の「上げない」の注記を外す |
-| MetalLB | v0.14.5 | v0.16.0 | porkadot の addon | 0.16.0 で BGP の既定の backend が frr-k8s に、metrics が HTTPS に。本番は L2 だけ。残っている `addresspools` の CRD を片付ける。API の VIP を持つので dev で先に通す |
+| MetalLB | v0.14.5 | **v0.16.1**（porkadot 0.37.2、porkadot#65） | porkadot の addon | 0.16.0 で BGP の既定の backend が frr-k8s に、metrics が HTTPS に。本番は L2 だけ。残っている `addresspools` の CRD を片付ける。API の VIP を持つので dev で先に通す（2026-10-24、porkadot-dev の `verification-metallb-0.16.md`。途切れ 0）。v0.16.0 ではなく v0.16.1 にしたのは、v0.16.0 の controller の health probe の不具合（metallb#3062）のため。手順は `runbook-metallb-0.16.md` |
 | CoreDNS | v1.14.7 | v1.15.x（registry.k8s.io に出てから） | porkadot の addon | v1.15.0 は `cache`（応答の無い SERVFAIL を cache する、cache の答えに AA を付けない）と `forward`（上流のホスト名を FQDN として扱う）の振る舞いが変わる（porkadot#61）。段 8 では上げなかった（2026-10-23 のユーザー判断）。ノードの resolv.conf に kube-dns が入る件（`runbook-stage-8.md` §2.10）もここで一緒に考える |
 | kube-dns-autoscaler | cpa-amd64 1.7.1 | cpa v1.10.3（マルチアーキ） | porkadot の addon | CoreDNS と同じ addon のディレクトリにあるが、段 8 の CoreDNS の PR とは分け、段 8 の後に別の porkadot の PR で上げる（段 8 の変更を小さく保ち、壊れたときに CoreDNS 本体と切り分けられるように） |
 | CNI plugins | v1.4.1 | v1.9.1 | porkadot（`cni_version`） | **段 3 で済む**（porkadot 0.32.0）。cnidaria の init container が置く版とそろえておく |
