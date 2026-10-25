@@ -228,7 +228,8 @@ cat $D/dry-run.txt
 ```
 
 - `diff` の rc は 1（差分あり）。**rc が 1 より大きければ、差分ではなくエラーなので止める**
-- 差分は **Deployment の image（v0.7.2 → v0.9.0）と generation（1 → 2）、last-applied の注釈の中の image、Service の port の `appProtocol: https` だけ**（dev の `diff-2-baecff7.txt` と同じ形）。ほかの差、ほかのオブジェクトの差があれば止める
+- 差分は **Deployment の image（v0.7.2 → v0.9.0）と generation（1 → 2）、Service の port の `appProtocol: https` だけ**（dev の `diff-2-baecff7.txt` と同じ形）。ほかの差、ほかのオブジェクトの差があれば止める
+- last-applied の注釈は diff に出ない（`kubectl diff` の MERGED 側は注釈を書き換えない。dev でも本番でも同じ。2026-10-25 の本番の作業で確かめた）
 - `--dry-run=server` は rc 0 で、`service/metrics-server configured (server dry run)`、`deployment.apps/metrics-server configured (server dry run)`、ほかの 7 つは `unchanged (server dry run)`。`created` の行があれば止める
 
 ### 2.7 時間帯
@@ -306,7 +307,7 @@ rollout が終わったら、`snap.sh` と `node-state.sh` を `../metrics-serve
 | 5 | Service・EndpointSlice | Service の port に `appProtocol: https`、ClusterIP `10.254.0.133` と port 443 → `https` は同じ。EndpointSlice の endpoint が新しい Pod の IP の 10250 だけ（`appProtocol` は EndpointSlice の port にも写る） |
 | 6 | APIService | Available `True`（`Passed`）。spec と resourceVersion（`1238973626`）が §2.2 の 7 と同じ（status が変われば resourceVersion は変わりうる。変わったら status を読む） |
 | 7 | ログ（`kubectl --context fraction -n kube-system logs deploy/metrics-server`） | 起動の `I` の行（`Generated self-signed cert`、`Serving securely on [::]:10250`、caches synced）。**`E` で始まる行、`x509`、`Failed to scrape node`、`unable to fetch`、`Forbidden` が無い** |
-| 8 | apiserver のログ（`snap.sh` の `apiserver-metrics.log`） | apply の後に `v1beta1.metrics.k8s.io` の `failing or missing response`・`503`・`OpenAPI` のエラーが無い |
+| 8 | apiserver のログ（`snap.sh` の `apiserver-metrics.log`） | apply の後に `v1beta1.metrics.k8s.io` の `failing or missing response`・`503`・`OpenAPI` のエラーが無い。**ただし古い Pod の終了の瞬間に 1 回だけ `True` → `False`（`FailedDiscoveryCheck`、`connection refused`）→ `True` が 1 秒に満たずに戻るものと、そのときの openAPI の `503` は許す**（時刻とメッセージを記録する。2026-10-25 の本番で約 70 ms。dev では出なかった）。繰り返す、または 1 秒を超えて `False` が続くなら止める（§6） |
 | 9 | `kubectl top` | `top nodes` が 8 台、`top pods -A` が Running の Pod の数と同じ行数。新しい Pod の起動から 1 分（`--metric-resolution=15s` で 4 周）たってから見る |
 | 10 | RBAC と last-applied | `lastapplied-diff.sh $R/v0.9.0.yaml` が 9 つとも `SAME`。RBAC の 6 つの resourceVersion が §2.2 の 11 と同じ |
 | 11 | ほかの Pod | 全 Pod の比較で、**変わったのは metrics-server の Pod だけ**（名前・UID・restartCount）。Running / Completed 以外が 0 |
@@ -340,6 +341,7 @@ rollout が終わったら、`snap.sh` と `node-state.sh` を `../metrics-serve
 - **`top-watch.log` の FAIL（`top=FAIL` か APIService が `True` でない）が 5 サンプルを超えて続く**、または合わせて 10 サンプルを超える
 - ログに `x509`、`Forbidden`、`Failed to scrape node` が続く（ノードの再起動と重なった 1 回だけなら記録して見る）
 - `top nodes` が 8 台より少ない
+- apiserver のログで APIService の `False` が繰り返す、または 1 秒を超えて続く（§4.2 の 8）
 - metrics-server 以外の Pod の再起動、Node の NotReady
 - `kubectl apply` が 2 回続けて rc 0 にならない
 
@@ -385,6 +387,10 @@ v0.9.0 は、ノードと Pod の両方の metrics がそろうまで Ready に�
 ### 8.3 kubelet の serving 証明書の期限
 
 metrics-server は kubelet の serving 証明書をクラスタの CA で検証する（`--kubelet-insecure-tls` は無い）。8 台の証明書は kubelet-serving-cert-approver が承認したもので、`rotateCertificates` で更新される。いちばん早い期限は oeilvert の 2027-03-20（§2.2 の 12）。この更新とは関係しないが、ログに `x509` が出たらまず期限を見る。
+
+### 8.4 古い Pod の終了の瞬間の APIService の `False`
+
+2026-10-25 の本番では、古い Pod が止まった 11:33:51.62Z に apiserver が `10.254.0.133:443` への discovery で `connection refused` を受け、APIService が約 70 ms だけ `False`（`FailedDiscoveryCheck`）になって `True` に戻った（`results/metrics-server-0.9/summary.md` §3.2）。1 秒ごとの監視には映らない。dev では出なかった。古い Pod の終了と Service の endpoints の切り替えの順のずれとみられる（推測）。§4.2 の 8 で、入れ替わりの瞬間の 1 回だけのものは許す。
 
 ## 9. 記録
 
