@@ -109,7 +109,7 @@ curl -sL -o /dev/null -w '%{http_code}\n' -H 'Accept: application/vnd.docker.dis
 |---|---|
 | `snap.sh <dir>` | `fraction-auditor` で、Node（Ready、unschedulable、allocatable の CPU、arch、taint）、全 Pod（UID・restartCount）、autoscaler と CoreDNS の Deployment・ReplicaSet・Pod（securityContext を含む yaml）、ConfigMap、autoscaler の ClusterRole・ClusterRoleBinding・ServiceAccount、autoscaler のログ、`coredns` の events。出力は `notes/runbook-dns-autoscaler/<dir>/` |
 | `node-state.sh <dir>` | 8 台に IP で ssh し、kubelet の MainPID・NRestarts・ActiveEnterTimestamp、containerd の autoscaler のイメージ |
-| `seccomp.sh <worker の IP>` | その worker の autoscaler のコンテナの `crictl inspect`（`status.seccomp`、OCI spec の `linux.seccomp` の有無）と `/proc/<pid>/status` の `Seccomp`（0 はなし、2 は filter） |
+| `seccomp.sh <worker の IP>` | その worker の autoscaler のコンテナの `crictl inspect`（`status.seccomp`、CRI の config の `security_context.seccomp`、OCI spec の `linux.seccomp` の有無）と `/proc/<pid>/status` の `Seccomp`（0 はなし、2 は filter） |
 | `dns-watch.sh <logdir>` | oeilvert（192.168.1.82。CoreDNS も autoscaler も載っていない）から 1 秒ごとに、kube-dns の Service `10.254.0.10` に `dig +time=1 +tries=1` で `kubernetes.default.svc.cluster.local`、`kube-dns.kube-system.svc.cluster.local`、`www.google.com` の A を問い合わせる。答えが無ければ `FAIL`。`<logdir>/dns.log` に 1 秒 1 行 |
 | `dns-replicas-watch.sh <logdir>` | 2 秒ごとの `coredns` の replicas（spec / ready / status）と、CoreDNS と autoscaler の Pod（名前、phase、Ready、restart、ノード、イメージ）を `<logdir>/dns-replicas.log` に |
 
@@ -293,7 +293,7 @@ rollout が終わったら、`snap.sh` と `node-state.sh` を `../dns-autoscale
 | 2 | Pod | **1 つだけ、v1.11.0 で Running、Ready、restart 0**。古い Pod が無い。イメージの digest（`imageID`）を記録する |
 | 3 | 配置 | chirico・duchamp・oeilvert・pablo のどれか（control-plane と braque には無い） |
 | 4 | ReplicaSet | 新しい ReplicaSet が 1/1。`cc5758b6f` と `64bc6d94b9` は 0 で残る（§7 で使う） |
-| 5 | seccomp（`seccomp.sh`。ノードへの SSH はサンドボックスの中で） | `status.seccomp` が RuntimeDefault（dev では `profile_type` 0）、OCI spec に `linux.seccomp`（`defaultAction: SCMP_ACT_ERRNO`）がある、**`/proc/<pid>/status` が `Seccomp: 2`**、`Seccomp_filters: 1`（dev と同じ） |
+| 5 | seccomp（`seccomp.sh`。ノードへの SSH はサンドボックスの中で） | CRI の config の `security_context.seccomp` が `{}`（`profile_type` 0 = RuntimeDefault。古い 1.7.1 は `profile_type` 1 = Unconfined）、OCI spec に `linux.seccomp`（`defaultAction: SCMP_ACT_ERRNO`）がある、**`/proc/<pid>/status` が `Seccomp: 2`**、`Seccomp_filters: 1`（dev と同じ）。`status.seccomp` は containerd 2.3.6 の `crictl inspect` に出ない（dev・本番とも `None`）ので見ない |
 | 6 | `:8080` | oeilvert から Pod IP の `:8080/healthz` と `:8080/last-poll` が 200（`ssh -n yuanying@192.168.1.82 'curl -s -o /dev/null -w "%{http_code}\n" --max-time 3 http://<Pod IP>:8080/healthz'`） |
 | 7 | ログ | `Scaling Namespace: kube-system, Target: deployment/coredns`、`Set control mode to linear`、`Params from apiserver:` に §2.2 の 7 の値、`Defaulting min replicas count to 1` が出る。**`E` で始まる行、`W` で始まる行、`Forbidden`、`Replicas are not as expected` が無い**（§4.3） |
 | 8 | CoreDNS | `coredns` の generation が 13 のまま、replicas 2、2/2。**Pod 2 つの名前・UID・restartCount が §2.2 の 8 と同じ**。`coredns` の events に `ScalingReplicaSet` が無い |
