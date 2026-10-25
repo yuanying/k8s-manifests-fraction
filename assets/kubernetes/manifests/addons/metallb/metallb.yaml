@@ -76,6 +76,12 @@ rules:
 - apiGroups:
   - metallb.io
   resources:
+  - ipaddresspools/status
+  verbs:
+  - update
+- apiGroups:
+  - metallb.io
+  resources:
   - bgpadvertisements
   verbs:
   - get
@@ -112,6 +118,7 @@ rules:
   - pods
   verbs:
   - list
+  - get
 - apiGroups:
   - ""
   resources:
@@ -176,6 +183,13 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - metallb.io
+  resources:
+  - servicebgpstatuses
+  - servicebgpstatuses/status
+  verbs:
+  - '*'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -226,7 +240,6 @@ rules:
   - metallb-webhook-configuration
   resources:
   - validatingwebhookconfigurations
-  - mutatingwebhookconfigurations
   verbs:
   - create
   - delete
@@ -239,7 +252,6 @@ rules:
   - admissionregistration.k8s.io
   resources:
   - validatingwebhookconfigurations
-  - mutatingwebhookconfigurations
   verbs:
   - list
   - watch
@@ -252,6 +264,7 @@ rules:
   - ipaddresspools.metallb.io
   - l2advertisements.metallb.io
   - communities.metallb.io
+  - configurationstates.metallb.io
   resources:
   - customresourcedefinitions
   verbs:
@@ -269,6 +282,26 @@ rules:
   verbs:
   - list
   - watch
+- apiGroups:
+  - metallb.io
+  resources:
+  - configurationstates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - metallb.io
+  resources:
+  - configurationstates/status
+  verbs:
+  - get
+  - patch
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -282,6 +315,8 @@ rules:
   resources:
   - servicel2statuses
   - servicel2statuses/status
+  - configurationstates
+  - configurationstates/status
   verbs:
   - '*'
 - apiGroups:
@@ -347,6 +382,9 @@ roleRef:
   kind: Role
   name: pod-lister
 subjects:
+- kind: ServiceAccount
+  name: controller
+  namespace: metallb-system
 - kind: ServiceAccount
   name: speaker
   namespace: metallb-system
@@ -425,7 +463,7 @@ spec:
   template:
     metadata:
       annotations:
-        prometheus.io/port: "7472"
+        prometheus.io/port: "9120"
         prometheus.io/scrape: "true"
       labels:
         app: metallb
@@ -433,36 +471,39 @@ spec:
     spec:
       containers:
       - args:
-        - --port=7472
+        - --port=9120
         - --log-level=info
-        - --tls-min-version=VersionTLS12
         env:
+        - name: METALLB_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         - name: METALLB_ML_SECRET_NAME
           value: memberlist
         - name: METALLB_DEPLOYMENT
           value: controller
-        image: quay.io/metallb/controller:v0.14.5
+        image: quay.io/metallb/controller:v0.16.1
         livenessProbe:
           failureThreshold: 3
           httpGet:
-            path: /metrics
-            port: monitoring
+            path: /healthz
+            port: 17472
           initialDelaySeconds: 10
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 1
         name: controller
         ports:
-        - containerPort: 7472
-          name: monitoring
+        - containerPort: 9120
+          name: metricshttps
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
         readinessProbe:
           failureThreshold: 3
           httpGet:
-            path: /metrics
-            port: monitoring
+            path: /readyz
+            port: 17472
           initialDelaySeconds: 10
           periodSeconds: 10
           successThreshold: 1
@@ -507,7 +548,7 @@ spec:
   template:
     metadata:
       annotations:
-        prometheus.io/port: "7472"
+        prometheus.io/port: "9120"
         prometheus.io/scrape: "true"
       labels:
         app: metallb
@@ -515,13 +556,17 @@ spec:
     spec:
       containers:
       - args:
-        - --port=7472
+        - --port=9120
         - --log-level=info
         env:
         - name: METALLB_NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: METALLB_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         - name: METALLB_HOST
           valueFrom:
             fieldRef:
@@ -534,20 +579,21 @@ spec:
           value: app=metallb,component=speaker
         - name: METALLB_ML_SECRET_KEY_PATH
           value: /etc/ml_secret_key
-        image: quay.io/metallb/speaker:v0.14.5
+        image: quay.io/metallb/speaker:v0.16.1
         livenessProbe:
           failureThreshold: 3
           httpGet:
-            path: /metrics
-            port: monitoring
+            host: 127.0.0.1
+            path: /healthz
+            port: 17472
           initialDelaySeconds: 10
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 1
         name: speaker
         ports:
-        - containerPort: 7472
-          name: monitoring
+        - containerPort: 9120
+          name: metricshttps
         - containerPort: 7946
           name: memberlist-tcp
         - containerPort: 7946
@@ -556,8 +602,9 @@ spec:
         readinessProbe:
           failureThreshold: 3
           httpGet:
-            path: /metrics
-            port: monitoring
+            host: 127.0.0.1
+            path: /readyz
+            port: 17472
           initialDelaySeconds: 10
           periodSeconds: 10
           successThreshold: 1
@@ -576,6 +623,9 @@ spec:
           readOnly: true
         - mountPath: /etc/metallb
           name: metallb-excludel2
+          readOnly: true
+        - mountPath: /etc/metallb/memberlist
+          name: memberlist-config
           readOnly: true
       hostNetwork: true
       nodeSelector:
@@ -598,6 +648,10 @@ spec:
           defaultMode: 256
           name: metallb-excludel2
         name: metallb-excludel2
+      - configMap:
+          name: metallb-memberlist-config
+          optional: true
+        name: memberlist-config
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
