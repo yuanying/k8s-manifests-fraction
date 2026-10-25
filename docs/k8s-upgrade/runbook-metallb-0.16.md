@@ -30,6 +30,8 @@ porkadot 0.37.2 に入った PR は porkadot#65（マージ `5646833`。`hack/me
 - **v0.16.1 の metrics（`:9120`）は、upstream の native のマニフェストのままでは取れない**（401 か 500。見つけたことの 3）
 - 更新の後の最長 5 分、speaker が消えた speaker の IP に memberlist の join を試してエラーを出す（見つけたことの 4。dev だけの形）。controller は起動の直後に `Reconciler error` を 2 回出す（見つけたことの 5）
 
+**本番では 2026-10-25 02:11〜02:19Z にこの手順書のとおりに通した**（`install kubernetes` は 1 回目で rc 0、監視の FAIL 0、§4.2 と §5 はすべて合格）。記録は `results/metallb-0.16/`（`baseline.md`、`summary.md`）。手順書と違ったところは、この手順書に直してある（`summary.md` §6）。
+
 dev で確かめていないものは次のとおり。**ここを本番で特に注意して見る。**
 
 - **arm64 の Raspberry Pi（control-plane の 3 台）での v0.16.1 の speaker と、Pi の pull の時間**（dev は amd64 の VM。arm64 のイメージがあることは確かめてある。§1.5）
@@ -129,7 +131,7 @@ done                                                        # amd64 と arm64 �
 | `node-ports.sh <dir>` | 8 台に IP で ssh し、kubelet の MainPID・NRestarts・ActiveEnterTimestamp、9120・17472・7472・7946 で聞いているプロセス（MetalLB 以外を含む）、containerd の MetalLB のイメージ |
 | `probe.sh <logdir>` | 作業端末から 1 秒ごとに、VIP の `https://192.168.1.101:6443/readyz`、gated-v4 の `http://192.168.1.200/`、gated-v6 の `http://[2405:6580:6740:ac01:ace::200]/`（どちらも 404 が返れば応答あり）、`h2-sshd`（`…ace::131`）と `natsumi-sshd`（`…ace::132`）の SSH のバナーを見る。`<logdir>/probe.log` に 1 秒 1 行 |
 | `ml-watch.sh <logdir>` | 2 秒ごとの MetalLB の Pod（名前、ノード、イメージ、Ready、restart、phase）を `<logdir>/ml-watch.log` に、6 秒ごとに全部の speaker と controller のログを `<logdir>/pods/<Pod>.log` に（消えた Pod は最後の写しが残る） |
-| `announce.sh <logdir> <from> <to>` | `<logdir>/pods/` の speaker のログの `serviceAnnounced`・`serviceWithdrawn` を時刻順に並べる。`notes/dev-metallb-0-16/scripts/owners.py` に流すと、アドレスごとの持ち主の移りになる |
+| `announce.sh <logdir> <from> <to>` | `<logdir>/pods/` の speaker のログの `serviceAnnounced`・`serviceWithdrawn` を時刻順に並べる。`notes/dev-metallb-0-16/scripts/owners.py` に流すと、アドレスごとの持ち主の移りになる（`owners.py` はノードが変わったときだけを移りとして出す）。**Pi（.111〜.113）の kubelet はログの時刻を JST（`+09:00`）で付けるので、UTC に直してから並べて絞る**（2026-10-25 の本番で直した。直す前は `<from>`・`<to>` で Pi の行が落ちた） |
 
 `probe.sh` と `ml-watch.sh` は `<logdir>/probe.stop` を作ると止まる。当日の `<logdir>` はタスクディレクトリの `notes/metallb-0-16/logs`。
 
@@ -319,7 +321,7 @@ porkadot install kubernetes --node 192.168.1.111
   - apiserver の apply の後に `daemon set "kube-apiserver" successfully rolled out`（apiserver は変わらないので待たずに終わる）
   - 全体の apply で `configured` になるもの: dev では ClusterRole 2 つ、Role `controller`・`pod-lister`、RoleBinding `pod-lister`（subjects に controller が加わる）、DaemonSet `speaker`、Deployment `controller`、ValidatingWebhookConfiguration。**`ipaddresspool.metallb.io/first-pool` と `l2advertisement.metallb.io/system` は `unchanged`**。`configured` なら §4.2 の 9 で `addresses` を読み、違えば止める
   - **`pruned` の行が無い**（オブジェクトの組は変わらない。§2.6）
-  - kube-system のもの（apiserver、KCM、scheduler、kube-proxy、CoreDNS）と cnidaria、kubelet-serving-cert-approver は `unchanged`。前からの `configured`（PDB の `kube-controller-manager`・`kube-scheduler` など。段 8 の手順書 §3.3 の注）は generation が変わらなければ想定内
+  - kube-system のもの（KCM、scheduler、kube-proxy、CoreDNS）と cnidaria、kubelet-serving-cert-approver は `unchanged`。前からの `configured`（PDB の `kube-controller-manager`・`kube-scheduler`、**DaemonSet `kube-apiserver`（apiserver の apply と全体の apply で 2 回）** など。段 8 の手順書 §3.3 の注）は generation が変わらなければ想定内。2026-10-25 の本番では `kube-apiserver` の generation は 31 のまま、apiserver の Pod は入れ替わらなかった
 - rc 1 のときの扱い（`connection refused` など）は段 8 の手順書 §8.3 と同じ。CRD の apply の後・全体の apply の前に落ちたなら、新しい CRD ができただけで MetalLB は v0.14.5 のまま。原因を見て流し直す（流し直しは ✋ の範囲）。2 回目も落ちたら止めて報告する
 - 流した直後に、§2.3 の 2 つの監視のログが続いていることを確かめる
 
@@ -352,10 +354,10 @@ rollout が終わったら、`snap.sh` と `node-ports.sh` を `../metallb-0-16/
 | 6 | probe | controller と speaker の Pod の events に `Unhealthy` が無い（readiness と liveness の probe が `17472` で通る） |
 | 7 | CRD | MetalLB の CRD が 9 つ（`addresspools` を入れて 10。§5 で消す）。**どれも `status.storedVersions` が 1 つ**（`bgppeers` は `[v1beta2]`、ほかは `[v1beta1]`）。`configurationstates`・`servicebgpstatuses` が `[v1beta1]`。既存の CRD の served・storage が §2.2 の表と同じ |
 | 8 | ConfigurationState | `kubectl --context fraction get configurationstates.metallb.io -A` に controller と各 speaker のノードの分（8 つ）があり、**どれも `result` が `Valid`** |
-| 9 | pool | `first-pool` の `spec.addresses` が §2.2 の 12 と同じ。generation が変わらない（2）。v0.16.1 では status（`assignedIPv4`・`assignedIPv6` など）が付く |
+| 9 | pool | `first-pool` の `spec.addresses` が §2.2 の 12 と同じ。generation が変わらない（2）。v0.16.1 では status（`assignedIPv4`・`assignedIPv6` など）が付く（2026-10-25 は `assignedIPv4: 3`、`assignedIPv6: 8`）。ServiceL2Status が告知している Service ごとに 1 つ（7 つ）できる（v0.14.5 では 0） |
 | 10 | LoadBalancer のアドレス | 11 個とも `status.loadBalancer.ingress` が §2.2 の 7 と同じ。**変わった・外れたものが無い** |
 | 11 | 告知と応答 | `probe.log` の最後の 1 分が FAIL 0。告知しているノードを §2.2 の 9 と同じ形で読み、記録する（変わっていてよい。gated-v4・gated-v6 は chirico か pablo） |
-| 12 | MetalLB のログ | controller の `Reconciler error`（`configurationstates.metallb.io "controller" not found`、`first-pool` の status の更新の衝突。どちらも起動の直後に 1 回だけ。dev の見つけたことの 5）、speaker の `partial join`（最長 5 分。dev の見つけたことの 4）、annotation `metallb.universe.tf/*` の deprecated の warn は想定どおり。**ほかの error が続いていないこと** |
+| 12 | MetalLB のログ | controller の `Reconciler error`（`configurationstates.metallb.io "controller" not found`、`first-pool` の status の更新の衝突。どちらも起動の直後に 1〜2 回だけ。dev の見つけたことの 5）、speaker の `partial join`（最長 5 分。dev の見つけたことの 4）、annotation `metallb.universe.tf/*` の deprecated の warn は想定どおり。本番では、ほかに起動の直後の 1 回だけのものとして、controller の `Reconciler error`（Service `metallbreload/reload` の `event handling failed, retrying`）、speaker の `configurationstates.metallb.io "speaker-<ノード>" not found`（.112・.113。ConfigReconciler と bgppeer）、各 speaker の `memberlist: Refuting a dead message (from: <自分>)` の warn が出た。`partial join` と controller の `"controller" not found` は出なかった。**ほかの error が続いていないこと** |
 | 13 | ほかの Pod | 全 Pod の比較で、**変わったのは `metallb-system` の Pod だけ**（名前・UID・restartCount）。kube-proxy・cnidaria・CoreDNS・apiserver・KCM・scheduler・gated の Pod の UID と restartCount が §2.2 の 2 と同じ。Running / Succeeded 以外が 0 |
 | 14 | kubelet | 8 台の MainPID・NRestarts・ActiveEnterTimestamp が §2.2 の 15 と同じ |
 | 15 | 監視の FAIL | `probe.log` の `install kubernetes` から rollout の完了までの FAIL の数（監視ごと）。dev では 0 |
@@ -380,7 +382,7 @@ spec:
 EOF
 ```
 
-- 合格: `admission webhook "ipaddresspoolvalidationwebhook.metallb.io" denied the request: CIDR "192.168.1.250/32" in pool "k8u-mlb-overlap" overlaps with already defined CIDR "192.168.1.190-192.168.1.254"` の形で拒まれる（dev の記録の「新しい LoadBalancer」）。`created (server dry run)` と出たら止めて報告する（何も作られていない）
+- 合格: `admission webhook "ipaddresspoolvalidationwebhook.metallb.io" denied the request: CIDR "192.168.1.250/32" in pool "k8u-mlb-overlap" overlaps with already defined CIDR "192.168.1.248/30"` の形で拒まれる（dev の記録の「新しい LoadBalancer」。重なる先は範囲 `192.168.1.190-192.168.1.254` を CIDR に分けたもので出る。2026-10-25 の本番の文言）。`created (server dry run)` と出たら止めて報告する（何も作られていない）
 
 **割り当て**: 一時的な名前空間に、**selector の無い** `type: LoadBalancer` の IPv4 の Service を作り、アドレスが割り当てられることを見て消す。
 
@@ -428,7 +430,7 @@ kubectl --context fraction get crd addresspools.metallb.io
 
 - **`wc -l` が 0 でなければ止める。** 中身を読んで報告する（消すかはユーザーが決める）
 - 消す前に、CRD の yaml をタスクディレクトリの `notes/metallb-0-16/addresspools-crd.yaml` に控える（`kubectl --context fraction get crd addresspools.metallb.io -o yaml`。Secret は含まない）。§7 で要ることは無い見込みだが、元の形を残す
-- 消した直後の数秒は `customresourcecleanup` の finalizer で Terminating として見える（dev では作ってから消し終わるまで 6 秒）
+- 消した直後の数秒は `customresourcecleanup` の finalizer で Terminating として見えることがある（dev では作ってから消し終わるまで 6 秒。本番の 0 件の CRD は 0.2 秒で消え、Terminating は見えなかった）
 - 本番の CRD の conversion webhook の先は、今は無い Service `webhook-service`（今の webhook の Service は `metallb-webhook-service`）。0 件なので conversion は呼ばれず、`get` も `delete` も通る（2026-10-25 の `get` は通った）
 - 消した後に、controller と speaker のログに `addresspool` もエラーも出ないこと、MetalLB の Pod が 8 つとも Ready・restart 0 のままであること、MetalLB の CRD が 9 つ残ることを見る。`probe.log` が FAIL 0
 - v0.16.1 の controller の ClusterRole が CRD を触れるのは `resourceNames` の 7 つ（`addresspools` を含まない）だけで、消した CRD を controller が入れ直すことは無い（dev の記録）
@@ -501,7 +503,7 @@ v0.16.1（と v0.14.5）の speaker は、起動の直後に、受け持たな�
 
 ### 8.2 memberlist の `partial join`
 
-更新の後の最長 5 分、新しい speaker が、消えた古い speaker の IP（dev では消えた .124）に join を試してエラーを 1 分ごとに出すことがある（speaker の IP の一覧は 5 分ごとに読み直す。dev の見つけたことの 4）。本番では speaker の IP はノードの IP で入れ替わりの前後で同じなので、出ないか短い見込み。5 分を超えて続いたら記録する。
+更新の後の最長 5 分、新しい speaker が、消えた古い speaker の IP（dev では消えた .124）に join を試してエラーを 1 分ごとに出すことがある（speaker の IP の一覧は 5 分ごとに読み直す。dev の見つけたことの 4）。本番では speaker の IP はノードの IP で入れ替わりの前後で同じなので、出ないか短い見込み（2026-10-25 の本番では出なかった）。5 分を超えて続いたら記録する。
 
 ### 8.3 metrics（`:9120`）
 
