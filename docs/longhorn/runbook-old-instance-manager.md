@@ -7,11 +7,13 @@
 | chirico の instance-manager | v1.11.2 の `instance-manager-4128231ccb0c288ab5a27791d898e928`（エンジン 4）と v1.13.0 の `instance-manager-ed03b27717c927983cfc70739d33ff3e` | v1.13.0 のものだけ（古いものは Longhorn が消す） |
 | 4 つのボリュームのエンジン | イメージは v1.13.0、プロセスは v1.11.2 の instance-manager の中 | アタッチ先のノードの v1.13.0 の instance-manager の中 |
 | share-manager（`homegallery/tumblr-data`・`ero-data`） | `longhorn-share-manager:v1.11.2`（CR の `spec.image` は v1.13.0、`status.currentImage` が v1.11.2） | v1.13.0 |
-| Trivy の該当のレポート | `pod-767f7c764c`（instance-manager v1.11.2、Critical 3・High 95）、`pod-6ccd6c447c`・`pod-7596f8df9b`（share-manager v1.11.2、Critical 1・High 46） | 無くなる。新しい share-manager の Pod のレポートは v1.13.0 のもの |
+| Trivy の該当のレポート | `pod-767f7c764c`（instance-manager v1.11.2、Critical 3・High 95）、`pod-6ccd6c447c`・`pod-7596f8df9b`（share-manager v1.11.2、Critical 1・High 46） | `pod-767f7c764c` は無くなる。share-manager の 2 つは同じ名前のまま、新しい Pod の v1.13.0 のレポートになる（§2.6） |
 
 依頼の資料: タスク `fraction-trivy-operator-scan` の `notes/handoff-longhorn-old-instance-manager.md` と、`notes/trivy-first-results.md` の申し送り 3。
 
 **この手順書を書いた時点では、本番は何も変えていない**（§2 の値は 2026-10-26 07:4xZ に `fraction-auditor` と SSH で読んだもの）。
+
+**2026-10-26 10:00〜10:06Z に本番で流し、完了した**（記録は `results/old-instance-manager.md`）。手順書との差はこの手順書に反映した。
 
 ## 0. 役割と約束ごと
 
@@ -149,6 +151,7 @@ chirico（192.168.1.83）に `ssh yuanying@192.168.1.83` で入り、パスワ�
 | （参考）`daemonset-longhorn-manager-pre-pull-share-manager-image` | | longhorn-share-manager:v1.13.0 | 1 | 8 |
 
 - Pod のレポートは owner が Pod で、Pod が消えると消える。新しい share-manager の Pod には Trivy Operator が新しいレポートを作る（v1.13.0 のイメージなので、参考の行と同じ Critical 1・High 8 の見込み）
+- **レポートの名前は Pod の名前のハッシュで、share-manager の Pod の名前は作り直しても変わらない。** 新しい Pod のレポートは同じ名前（`pod-7596f8df9b`・`pod-6ccd6c447c`）で作られる（2026-10-26 の作業では、Pod の作成から 7〜16 秒）。確かめはタグと owner の UID で行う
 - v1.13.0 のイメージの Critical は別件（v1.13.x の更新で扱う。依頼の資料）
 
 ### 2.7 時間帯
@@ -377,6 +380,9 @@ done | tee -a $D/probe.log &
    kubectl --context fraction -n homegallery wait --for=delete pod -l app=homegallery,component=ero --timeout=120s
    wait_vol $V_TUMBLR detached 300
    wait_vol $V_ERO detached 300
+   # ボリュームが detached になった直後は stopping のことがある（2026-10-26 は 14 秒）。stopped まで待つ
+   end=$((SECONDS + 180)); until [ "$($K get sharemanagers.longhorn.io $V_TUMBLR $V_ERO -o jsonpath='{.items[*].status.state}')" = "stopped stopped" ]; do
+     [ $SECONDS -ge $end ] && { echo TIMEOUT; break; }; sleep 3; done
    sm_state     # 2 つとも stopped、share-manager の Pod が無い
    ```
 
@@ -458,7 +464,7 @@ done
 | 7 | iscsid | 4 台の MainPID が §4.1 と同じ |
 | 8 | Pod | クラスタ全体で Running / Completed 以外が無い。`pods-before.txt` と比べ、作り直されたのが `fs/data`・`fs/h2`・`tumblr-web`・`ero-web`・share-manager 2 つだけ。aphrael 4・`comics-webdav`・`*-restore` 3 つの UID と restartCount が変わっていない |
 | 9 | アプリ | §4.3 の監視の `FAIL` が止まっている。`h2-sshd` の LB と `data.fs.svc`・`h2.fs.svc` の 22 が SSH のバナーを返す。aphrael・tumblr・ero の service proxy が答える。`www.fraction.jp` が 200（`fs/sites` は触っていない対照） |
-| 10 | Trivy | `$K get vulnerabilityreports` に §2.6 の `pod-767f7c764c`・`pod-7596f8df9b`・`pod-6ccd6c447c` が無い。新しい share-manager の Pod の 2 つのレポートが、`longhorn-share-manager:v1.13.0` で作られる（スキャンは Pod の作成の後、数分〜十数分） |
+| 10 | Trivy | `$K get vulnerabilityreports` に `pod-767f7c764c` が無い。`pod-7596f8df9b`・`pod-6ccd6c447c` は同じ名前のまま、新しい share-manager の Pod（owner の UID が新しい Pod のもの）の `longhorn-share-manager:v1.13.0` のレポートになる（§2.6。2026-10-26 は Pod の作成から十数秒）。タグが v1.11.2 のレポートが無い |
 | 11 | ノード | 8 台 Ready。Longhorn の Node 4 つが Ready・schedulable |
 | 12 | 監視 | §4.3 の 2 つを止め、`FAIL` の数と時刻、`watch.log` の degraded・faulted の時刻を記録する |
 | 13 | 片付け | `unset ADMIN_TOKEN`、`rm /tmp/lh-oldim-admin-token` |
@@ -477,6 +483,8 @@ done
 | 段 A と B の間 | — | 段 A の確かめ（5〜10 分） | |
 
 全体で 30 分〜1 時間（確かめを含む）。
+
+2026-10-26 の実際（`results/old-instance-manager.md`）: Pod はどれも同じノード（chirico、duchamp）に戻り、pull は要らなかった。`fs/data` の NFS・SSH は約 40 秒、`fs/h2` は約 40 秒、homegallery は約 2 分 30 秒止まり、段 A の始めから段 B の戻りまで 10:00〜10:05 だった。
 
 止まる間に使えないもの:
 
@@ -505,7 +513,7 @@ done
 | **iscsid の PID が変わった** | 4 台のどれかの MainPID が §4.1 と違う | 作業の外の再起動（needrestart など）。どのエンジンが `older-than-iscsid` になったかを記録する |
 | **I/O エラー** | Longhorn を使う Pod のログ、ノードの `dmesg` に `Buffer I/O error`・`blk_update_request` | — |
 | **share-manager が動かない** | 戻した後、share-manager が `running` にならない、Pod が v1.13.0 で起動しない、RWX の Pod の NFS のマウントが止まる | share-manager の Pod のログ、longhorn-manager のログ（recovery backend）、NetworkPolicy（`longhorn-recovery-backend`） |
-| **NFS の頼り手が戻らない** | h2 を戻してから 5 分たっても、aphrael・comics の service proxy や `h2-restore` が答えない | Pod の再起動はユーザーが決める（hard マウントのつなぎ直しが効かなかった場合） |
+| **NFS の頼り手が戻らない** | h2 を戻してから 5 分たっても、aphrael・comics の service proxy や `h2-restore` が答えない（`comics-webdav` の service proxy の `/` はふだんから 404 を返す。5xx・timeout と、アプリのログで見る） | Pod の再起動はユーザーが決める（hard マウントのつなぎ直しが効かなかった場合） |
 | **想定外の再起動** | 作り直したもの（§4.6 の 8）のほかの Pod の UID・restartCount が変わる | — |
 | **古い instance-manager が消えない** | 段 B の後、`$OLD_IM` の中のエンジンが 0 なのに 10 分たっても残る | データの危険は無い。ワークロードを戻してから報告する。手で消すかはユーザーが決める |
 
