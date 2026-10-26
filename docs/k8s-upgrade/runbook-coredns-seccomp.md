@@ -68,6 +68,7 @@ kubectl-admin() { kubectl --context fraction --token="$ADMIN_TOKEN" "$@"; }
 ```
 
 - トークンは §3.1 の dry-run の前に発行し、§4.3 の dry-run の後に破棄する（`unset ADMIN_TOKEN`。ファイルに書かない）。サーバーの側では 1 時間で切れる
+- worker のハーネスのようにコマンドごとにシェルが新しくなり変数が残らないときは、§3.1 と §4.3 の dry-run ごとに、同じコマンドの中で発行・使用・`unset` する（2026-10-26 の本番。トークンをファイルに書いて持ち越さない）
 - `kubectl-admin` で流すのは `kubectl-admin -n kube-system scale deployment/coredns --replicas=3 --dry-run=server` だけ。**`--dry-run=server` の無い `scale` は流さない**（replicas は autoscaler が決める）
 
 ### 1.3 SSH
@@ -143,7 +144,7 @@ curl -sL -o /dev/null -w '%{http_code}\n' -H "Accept: $A" https://registry.k8s.i
 |---|---|---|---|
 | 1 | 流し方 | porkadot 0.37.4 の `install kubernetes --node 192.168.1.111` を 1 回。CRD の server-side apply、apiserver の apply と rollout の待ち（apiserver は変わらないので Pod は入れ替わらない）、全体の `apply -k --prune` | dev の記録、`assets/kubernetes/install.sh` |
 | 2 | drain・cordon | しない（ノードには触らない） | — |
-| 3 | 入れ替わり | Deployment `coredns` は RollingUpdate（`maxSurge: 25%`・`maxUnavailable: 1`、replicas 2。surge は切り上げで 1）。rollout は古い Pod の 1 つを止め（`lameduck 5s` の間は答え続ける）、新しい Pod 2 つを同時に作り、2 つが Ready になってから残りの古い Pod を止める。**その間 Ready な Pod は 1 つになる時間がある**（dev では数秒〜10 秒。本番は pull があれば延びる。§8.2・§8.3）。PDB は無い | live の `strategy`、dev の記録の見つけたことの 1・2 |
+| 3 | 入れ替わり | Deployment `coredns` は RollingUpdate（`maxSurge: 25%`・`maxUnavailable: 1`、replicas 2。surge は切り上げで 1）。rollout は古い Pod の 1 つを止め（`lameduck 5s` の間は答え続ける）、新しい Pod 2 つを同時に作り、新しい Pod が Ready になると残りの古い Pod を止める（`maxUnavailable: 1` なので、新しい Pod が 1 つ Ready になれば止めてよい。2026-10-26 の本番では 1 つ目が Ready になった秒に止めた。dev では 2 つがほぼ同時に Ready になった）。**その間 Ready な Pod は 1 つになる時間がある**（dev では数秒〜10 秒。本番は pull があれば延びる。§8.2・§8.3）。PDB は無い | live の `strategy`、dev の記録の見つけたことの 1・2 |
 | 4 | 配置 | 新しい Pod は taint の無い worker（chirico、duchamp、oeilvert、pablo。どれも amd64）のどれか。tolerations は `CriticalAddonsOnly` だけで、control-plane（`node-role.kubernetes.io/master:NoSchedule`）と braque（`unstable.cloud/storage:NoSchedule`）には載らない。`podAntiAffinity` は無いので、新しい 2 つが同じノードに載ることはありうる（§8.4） | live の tolerations と taint（§2.2 の 1・3） |
 | 5 | 途切れ | 見込まない（dev で 0）。許容する範囲: DNS の監視の 1〜2 サンプルの FAIL（記録する）。止める条件は §6 | 2026-10-19 のユーザーの方針（短時間の障害は許容） |
 | 6 | イメージの事前 pull | **しない**。#3 のとおり古い Pod の 1 つは新しい Pod が Ready になるまで答え続けるので、pull の時間は途切れにならない（Ready な Pod が 1 つの時間が延びるだけ）。v1.14.7 は 24.3 MB。registry.k8s.io から取れないときは新しい Pod が `ImagePullBackOff` のまま古い Pod の 1 つが残り、§6 で止める | §2.2 の 12、autoscaler の手順書 §2.1 の 6 |
@@ -215,7 +216,7 @@ ls -l ./backup/
 ```
 
 - 手元のファイルは `./backup/etcd-<日時>.db`、モード 0600。`./backup/` は `.gitignore` で除外してある。スナップショットには Secret が平文で入っているので、`git add -f` などで追加しない。worktree で流したときは、worktree を片付ける前にメインの checkout の `backup/` へ写す
-- 時刻、ファイル名、サイズ、sha256 を記録する（autoscaler の前のものは 55,107,616 B）。桁が違えば止める
+- 時刻、ファイル名、サイズ、sha256 を記録する（autoscaler の前のものは 55,107,616 B、この手順の 2026-10-26 07:02Z のものは 66,986,016 B）。桁が違えば止める
 - CoreDNS の seccomp の直しは etcd の restore を要しない見込み（§7 のロールバックは `install kubernetes` で戻す）。このバックアップは想定外のときの最後の手段
 
 ### 2.5 render の差分（この手順書と同じ PR）
@@ -439,11 +440,12 @@ BUNDLE_GEMFILE=$P_OLD/Gemfile bundle exec $P_OLD/exe/porkadot install kubernetes
 - **1 つの Pod で 1 回まで**は、前のコンテナのログに `plugin/loop` があり起き直して Ready なら想定どおりとして記録して進める（§2.1 の 9）。CrashLoopBackOff・2 回以上は止める（§6）
 - seccomp の件とは関係しない（戻した `Unconfined` の Pod でも同じに出うる）。見分けるには、前のコンテナのログの最後の行が `plugin/loop` かを見る。seccomp で syscall が拒まれたときは、`operation not permitted` などのエラーで止まるはず（dev でも本番の autoscaler でも出ていない）
 - 上流の DNS が答えない間は再起動が続きうる（2026-10-23 02:14〜02:26Z）。§2.6 の jumelle の時間帯を避ける
+- oeilvert の resolv.conf は nameserver が 4 つで、kubelet は最初の 3 つ（192.168.0.1、10.254.0.10、192.168.0.1）だけを Pod に渡す。CoreDNS の Pod が oeilvert に載ると `DNSConfigForming`（`Nameserver limits were exceeded`）の warning の event が出る。前からの件で、想定どおりとして記録する（2026-10-26 の本番で出た。`loop` の FATAL は出なかった）
 - resolv.conf の kube-dns を外す直しは、この手順書の範囲の外（§10）
 
 ### 8.2 Ready の遅れ
 
-readinessProbe に `initialDelaySeconds` が無く、`periodSeconds: 10`。最初の probe がコンテナの起動直後に当たると `:8181` がまだ開いておらず `connection refused`（`Readiness probe failed` の event）になり、次は 10 秒後になる（dev の見つけたことの 1。seccomp とは関係しない）。その間 Ready な Pod は 1 つ（と lameduck の古い Pod）。`Readiness probe failed` の event が 1 回出て 10 秒後に Ready になるのは想定どおりとして記録する。
+readinessProbe に `initialDelaySeconds` が無く、`periodSeconds: 10`。最初の probe がコンテナの起動直後に当たると `:8181` がまだ開いておらず `connection refused`（`Readiness probe failed` の event）になり、次は 10 秒後になる（dev の見つけたことの 1。seccomp とは関係しない）。その間 Ready な Pod は 1 つ（と lameduck の古い Pod）。`Readiness probe failed` の event が 1 回出て 10 秒後に Ready になるのは想定どおりとして記録する。2026-10-26 の本番では、2 つの Pod とも 1 回目の probe が `connection refused` になったが、1 秒ほどで Ready になった（10 秒は待たなかった）。
 
 ### 8.3 pull
 
