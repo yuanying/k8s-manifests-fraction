@@ -1,0 +1,48 @@
+# HELP zpool_textfile_last_run_timestamp_seconds Unix time when zpool-textfile last wrote this file.
+# TYPE zpool_textfile_last_run_timestamp_seconds gauge
+zpool_textfile_last_run_timestamp_seconds 1800000000
+# HELP zpool_vdev_state State of the pool or vdev as shown by zpool status (1 for the shown state).
+# TYPE zpool_vdev_state gauge
+zpool_vdev_state{zpool="rpool",vdev="rpool",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="mirror-0",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="/dev/sda3",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="/dev/sdb3",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="/dev/nvme0n1p1",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="/dev/nvme0n1p2",state="online"} 1
+zpool_vdev_state{zpool="rpool",vdev="/dev/sdc3",state="avail"} 1
+zpool_vdev_state{zpool="scratch",vdev="scratch",state="online"} 1
+zpool_vdev_state{zpool="scratch",vdev="/dev/sdd1",state="online"} 1
+# HELP zpool_vdev_errors READ, WRITE and CKSUM error counts of the pool or vdev as shown by zpool status.
+# TYPE zpool_vdev_errors gauge
+zpool_vdev_errors{zpool="rpool",vdev="rpool",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="rpool",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="rpool",type="checksum"} 0
+zpool_vdev_errors{zpool="rpool",vdev="mirror-0",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="mirror-0",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="mirror-0",type="checksum"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sda3",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sda3",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sda3",type="checksum"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sdb3",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sdb3",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/sdb3",type="checksum"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p1",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p1",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p1",type="checksum"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p2",type="read"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p2",type="write"} 0
+zpool_vdev_errors{zpool="rpool",vdev="/dev/nvme0n1p2",type="checksum"} 0
+zpool_vdev_errors{zpool="scratch",vdev="scratch",type="read"} 0
+zpool_vdev_errors{zpool="scratch",vdev="scratch",type="write"} 0
+zpool_vdev_errors{zpool="scratch",vdev="scratch",type="checksum"} 0
+zpool_vdev_errors{zpool="scratch",vdev="/dev/sdd1",type="read"} 0
+zpool_vdev_errors{zpool="scratch",vdev="/dev/sdd1",type="write"} 0
+zpool_vdev_errors{zpool="scratch",vdev="/dev/sdd1",type="checksum"} 0
+# HELP zpool_scrub_in_progress Whether a scrub is in progress or paused (1) or not (0).
+# TYPE zpool_scrub_in_progress gauge
+zpool_scrub_in_progress{zpool="rpool"} 0
+zpool_scrub_in_progress{zpool="scratch"} 0
+# HELP zpool_data_errors Number of data errors reported by zpool status.
+# TYPE zpool_data_errors gauge
+zpool_data_errors{zpool="rpool"} 0
+zpool_data_errors{zpool="scratch"} 0
