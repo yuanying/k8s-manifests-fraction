@@ -24,3 +24,28 @@
 | 9 | iSCSI | iscsid の MainPID: chirico 3144486、duchamp 2695716、oeilvert 912599、pablo 4114921（§2.5 と同じ）。chirico は 10.244.8.216 に 4、10.244.8.60 に 1。どのノードも portal は今の instance-manager の IP だけ。chirico の 4 本のエンジンは `older-than-iscsid` |
 | 10 | Pod | Running / Completed 以外 0。8 台 Ready（v1.37.1） |
 | 11 | Trivy | `pod-767f7c764c`（instance-manager v1.11.2、C3/H95）、`pod-7596f8df9b`・`pod-6ccd6c447c`（share-manager v1.11.2、C1/H46） |
+
+### 1.2 当日の読み直し（09:48）
+
+`notes/longhorn-old-im/before/`、`node-before-*.txt`、`replicas-before.txt`、`pods-before.txt`、`trivy-before.txt`。1.1 と同じだった（iscsid の MainPID 4 台とも同じ、`lh-state.sh` の要約も同じ）。その日の `data-backup` は 09:03 に済み、`aphrael/tumblr-like` は 09:38 に済んで次は 12:38。09:48 に監視（§4.3 の 2 つ）を起動し、10:00:10 に `infra-admin` のトークン（2h）を発行した。
+
+## 2. 段 A: `fs/data`（§4.4）
+
+| 時刻 | できごと |
+|---|---|
+| 10:00:23 | ✋ `scale deploy/data --replicas=0` |
+| 10:00:28 | Pod `data-66596b955b-wgs4w` が消えた |
+| 10:00:36 | detaching |
+| 10:00:38 | detached。エンジン stopped（`instanceManagerName` 空）、replica は stopped 2 で `failedAt` なし |
+| 10:00:42 | `$OLD_IM` の中のエンジンが 3 つ（tumblr-data、ero-data、h2）に減った |
+| 10:00:49 | ✋ `scale deploy/data --replicas=1` |
+| 10:00:52〜55 | attaching → attached（chirico） |
+| 10:01:00 | healthy |
+| 10:01:01 | rollout 完了。Pod `data-66596b955b-vb98t`（chirico）、2/2 Running |
+
+- **chirico の iSCSI**: detach の後、`pvc-1d94c3ed` のセッション（sid 4、10.244.8.216）と `/dev/longhorn/pvc-1d94c3ed-…` が消え、10.244.8.216 のセッションは 3 本になった。`dmesg` には ext4 の umount だけで、I/O エラーは無い。**iscsid の今の起動より前に起動した（`older-than-iscsid`）エンジンでも、logout は通った**（§2.5 の見立てのとおり。v1.13.0 のエンジンのバイナリの nsenter の直しが効いている）
+- 戻した後: エンジンは `instance-manager-ed03b277…`（chirico、v1.13.0）。セッションは sid 20、portal 10.244.8.60（その instance-manager の IP）。iscsid の MainPID は 3144486 のまま。replica は chirico・duchamp の running 2
+- Pod は前と同じ chirico に載った（イメージの pull は無い）
+- `fs/data-restore` は Running、restartCount 0 のまま
+- 止まっていた時間（`probe.log`）: `data`（NFS）は 10:00:27〜10:01:00 の `FAIL`（約 36 秒）、`data-ssh` は 10:00:24〜10:01:05（約 41 秒）。10:01:43 に SSH のバナーが返った。見込み（2〜5 分）よりずっと短い
+- `watch.log`: degraded・faulted は出ていない
