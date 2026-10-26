@@ -1,0 +1,13 @@
+[Unit]
+Description=Write zpool status metrics for the node-exporter textfile collector
+Documentation=https://github.com/yuanying/k8s-manifests-fraction/blob/master/docs/zfs-monitoring/runbook-zpool-textfile.md
+After=zfs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/zpool-textfile.sh /var/lib/node-exporter/zpool.prom
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node-exporter
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

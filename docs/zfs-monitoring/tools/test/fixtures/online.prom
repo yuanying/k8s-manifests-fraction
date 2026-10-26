@@ -1,0 +1,42 @@
+# HELP zpool_textfile_last_run_timestamp_seconds Unix time when zpool-textfile last wrote this file.
+# TYPE zpool_textfile_last_run_timestamp_seconds gauge
+zpool_textfile_last_run_timestamp_seconds 1800000000
+# HELP zpool_vdev_state State of the pool or vdev as shown by zpool status (1 for the shown state).
+# TYPE zpool_vdev_state gauge
+zpool_vdev_state{zpool="tank1",vdev="tank1",state="online"} 1
+zpool_vdev_state{zpool="tank1",vdev="raidz1-0",state="online"} 1
+zpool_vdev_state{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-0",state="online"} 1
+zpool_vdev_state{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-1",state="online"} 1
+zpool_vdev_state{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-2",state="online"} 1
+# HELP zpool_vdev_errors READ, WRITE and CKSUM error counts of the pool or vdev as shown by zpool status.
+# TYPE zpool_vdev_errors gauge
+zpool_vdev_errors{zpool="tank1",vdev="tank1",type="read"} 0
+zpool_vdev_errors{zpool="tank1",vdev="tank1",type="write"} 0
+zpool_vdev_errors{zpool="tank1",vdev="tank1",type="checksum"} 0
+zpool_vdev_errors{zpool="tank1",vdev="raidz1-0",type="read"} 0
+zpool_vdev_errors{zpool="tank1",vdev="raidz1-0",type="write"} 0
+zpool_vdev_errors{zpool="tank1",vdev="raidz1-0",type="checksum"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-0",type="read"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-0",type="write"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-0",type="checksum"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-1",type="read"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-1",type="write"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-1",type="checksum"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-2",type="read"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-2",type="write"} 0
+zpool_vdev_errors{zpool="tank1",vdev="/dev/disk/by-partlabel/zfs-tank1-2",type="checksum"} 0
+# HELP zpool_scrub_in_progress Whether a scrub is in progress or paused (1) or not (0).
+# TYPE zpool_scrub_in_progress gauge
+zpool_scrub_in_progress{zpool="tank1"} 0
+# HELP zpool_scrub_last_end_timestamp_seconds Unix time when the last completed scrub ended.
+# TYPE zpool_scrub_last_end_timestamp_seconds gauge
+zpool_scrub_last_end_timestamp_seconds{zpool="tank1"} 1791706351
+# HELP zpool_scrub_last_repaired_bytes Bytes repaired by the last completed scrub.
+# TYPE zpool_scrub_last_repaired_bytes gauge
+zpool_scrub_last_repaired_bytes{zpool="tank1"} 0
+# HELP zpool_scrub_last_errors Errors found by the last completed scrub.
+# TYPE zpool_scrub_last_errors gauge
+zpool_scrub_last_errors{zpool="tank1"} 0
+# HELP zpool_data_errors Number of data errors reported by zpool status.
+# TYPE zpool_data_errors gauge
+zpool_data_errors{zpool="tank1"} 0

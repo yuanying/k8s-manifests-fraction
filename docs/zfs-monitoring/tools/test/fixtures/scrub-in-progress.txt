@@ -1,0 +1,15 @@
+  pool: tank1
+ state: ONLINE
+  scan: scrub in progress since Sun Oct 11 00:24:01 2026
+	3.21T / 7.63T scanned at 512M/s, 2.10T / 7.63T issued at 335M/s
+	0B repaired, 27.52% done, 04:48:12 to go
+config:
+
+	NAME                                    STATE     READ WRITE CKSUM
+	tank1                                   ONLINE       0     0     0
+	  raidz1-0                              ONLINE       0     0     0
+	    /dev/disk/by-partlabel/zfs-tank1-0  ONLINE       0     0     0
+	    /dev/disk/by-partlabel/zfs-tank1-1  ONLINE       0     0     0
+	    /dev/disk/by-partlabel/zfs-tank1-2  ONLINE       0     0     0
+
+errors: No known data errors
