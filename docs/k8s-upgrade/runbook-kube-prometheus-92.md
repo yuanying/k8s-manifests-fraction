@@ -34,7 +34,7 @@ fleet-infra#206（マージ `675f543`）は `scripts/update-kube-prometheus.sh` 
 
 dev で確かめていないものは次のとおり。**ここを本番で特に注意して見る。**
 
-- **本番の CRD のうち 4 つ（`podmonitors`・`probes`・`prometheusrules`・`servicemonitors`）は、client-side apply の last-applied の注釈と `crd: "true"` のラベルを持ち、managedFields に `kubectl-client-side-apply` がある**（§2.2 の 9）。2026-05-22 の導入のとき、server-side の apply の後に `kubectl apply -k` も流し、小さい 4 つだけが client-side でも通ったものとみられる（推測）。dev はこの形を作らずに確かめた。`kubectl-client-side-apply` が持つのはラベル `crd` と last-applied の注釈だけ（2026-10-25 に読んだ）で、新しい render も同じラベルの値なので conflict は出ない見込み。server-side apply の後に last-applied の注釈が残るか消えるかは確かめていない（どちらでもよい。§2.6）
+- **本番の CRD のうち 4 つ（`podmonitors`・`probes`・`prometheusrules`・`servicemonitors`）は、client-side apply の last-applied の注釈と `crd: "true"` のラベルを持ち、managedFields に `kubectl-client-side-apply` がある**（§2.2 の 9）。2026-05-22 の導入のとき、server-side の apply の後に `kubectl apply -k` も流し、小さい 4 つだけが client-side でも通ったものとみられる（推測）。dev はこの形を作らずに確かめた。`kubectl-client-side-apply` が持つのはラベル `crd` と last-applied の注釈だけ（2026-10-25 に読んだ）で、新しい render も同じラベルの値なので conflict は出ない見込み。2026-10-26 の本番では、conflict は出ず、last-applied の注釈は消えずに新しい内容に書き換わった。dry-run でだけ non-fatal の Warning が出た（§2.6）
 - **ブロックのある TSDB**。本番の Prometheus は 2 つとも 16 ブロック・約 7.6 GB、WAL 約 0.4〜0.5 GB、保持 10 日（§2.2 の 7）。Prometheus v3.15.0 が開けることは dev では確かめていない。**開けなくても止める条件にしない**（データは失ってもよい。§5）
 - **本番の 8 台**（dev は 7 台、すべて amd64）。node-exporter と smart-exporter の DaemonSet は control-plane の Pi 5（arm64）にも載る。92.13.1 の 9 つのイメージには `linux/arm64` がある（#206）
 - **render の外のもの**: `gated-system` の PodMonitor `gated` と PrometheusRule `gated`（fleet-infra の `apps/gated`）。新しい CRD でも同じ形のまま scrape されることを見る（§4.2）
@@ -256,9 +256,13 @@ grep -c '^diff -u' $D/diff-crds.txt $D/diff-rest.txt                            
 awk '{print $NF, $(NF-1)}' $D/dry-run-rest.txt | sort | uniq -c
 ```
 
-- `diff` の rc は 1（差分あり）。**rc が 1 より大きければ、差分ではなくエラーなので止める**。`conflict` の文字が出たら止める（§3.2）
-- **CRD（server-side の diff）**: 10 個とも差がある。差は `metadata.annotations` の `controller-gen.kubebuilder.io/version`（v0.19.0 → v0.22.0）と `operator.prometheus.io/version`（0.90.1 → 0.94.1）、`generation`（1 → 2）、schema の中（description と新しいフィールド）。**ラベル `crd: "true"` は、今ラベルの無い 6 つに足される**（dev と同じ）。今ある 4 つ（`podmonitors`・`probes`・`prometheusrules`・`servicemonitors`）はラベルの差が無い。この 4 つは、kubectl が client-side の managedFields を server-side に移すために、**last-applied の注釈が消える差が出るかもしれない**（dev で確かめていない。出ても出なくても進める）。`spec.versions[].name`・`served`・`storage` の差、`status` の差があれば止める
-- CRD の dry-run は rc 0 で、10 個とも `serverside-applied (server dry run)`
+- `diff` の rc は 1（差分あり）。**rc が 1 より大きければ、差分ではなくエラーなので止める**。apply の conflict（rc が 0 でない、`serverside-applied` にならないもの）が出たら止める（§3.2）。下の last-applied の移行の Warning は止める理由にしない
+- **CRD（server-side の diff）**: 10 個とも差がある。差は `metadata.annotations` の `controller-gen.kubebuilder.io/version`（v0.19.0 → v0.22.0）と `operator.prometheus.io/version`（0.90.1 → 0.94.1）、`generation`（1 → 2。`prometheusrules` は schema が変わらず 1 のまま）、schema の中（description と新しいフィールド）。**ラベル `crd: "true"` は、今ラベルの無い 6 つに足される**（dev と同じ）。今ある 4 つ（`podmonitors`・`probes`・`prometheusrules`・`servicemonitors`）はラベルの差が無く、**last-applied の注釈が消えずに新しい内容（0.94.1 の注釈）に書き換わる差が出る**（2026-10-26 の本番）。`spec.versions[].name`・`served`・`storage` の差、`status` の差があれば止める
+- CRD の dry-run は rc 0 で、10 個とも `serverside-applied (server dry run)`。2026-10-26 の本番では、last-applied を持つ 4 つに次の Warning が 1 行ずつ出た。kubectl が `kubectl-client-side-apply` の managedFields を server-side の manager に移そうとして、last-applied の注釈の持ち主の違いで失敗したという non-fatal の警告で、apply の本体の conflict ではない。**この Warning は止める理由にしない**（2026-10-26 ユーザー判断）。`--force-conflicts` は使わない。本番の apply（§3.2）では出ず、4 つの managedFields に `kubectl-last-applied`（Apply）が足された
+
+  ```
+  Warning: failed to migrate kubectl.kubernetes.io/last-applied-configuration for Server-Side Apply. This is non-fatal and will be retried next time you apply. Error: Apply failed with 1 conflict: conflict with "kubectl-client-side-apply" using apiextensions.k8s.io/v1: .metadata.annotations.kubectl.kubernetes.io/last-applied-configuration
+  ```
 - **CRD 以外（client-side の diff）**: 125 個のうち 120 個に差（`DIFF` 117 と新しい 3 つ。§2.2 の 14 と同じ組）。差の無い 5 つは smart-exporter の DaemonSet、PrometheusRule `prometheus-smart-rules`、Ingress 3 つ。見るところ:
   - Prometheus の CR: image・`version`・`nodeSelector`・`scrapeClasses`・ラベル。**`spec.storage` に差が無いこと**（差があれば §5 を読み直してから止めて報告する）
   - Alertmanager の CR: image・`version`・`nodeSelector`・`hostNetwork`・ラベル
@@ -320,7 +324,7 @@ kubectl --context fraction get crd -o json | jq -r '.items[] | select(.spec.grou
 
 - 時刻と rc を記録する。dev では 2 秒
 - 出力は 10 行とも `customresourcedefinition.apiextensions.k8s.io/<名前> serverside-applied`
-- **`conflict` が出たら止めて報告する**（`--force-conflicts` は runbook から外れる操作。§2.6 の dry-run で出ていなければ出ない見込み）。#206 の本文は、出たら `--force-conflicts` を使うと書いている。推奨はそれだが、どのフィールドで誰と conflict したかを見てからユーザーが決める
+- **apply の `conflict`（rc が 0 でない、`serverside-applied` にならない）が出たら止めて報告する**。§2.6 の last-applied の移行の Warning（non-fatal）は止める理由にしない（`--force-conflicts` は runbook から外れる操作。§2.6 の dry-run で出ていなければ出ない見込み）。#206 の本文は、出たら `--force-conflicts` を使うと書いている。推奨はそれだが、どのフィールドで誰と conflict したかを見てからユーザーが決める
 - 流した後、10 個とも版の注釈が `0.94.1`、ラベル `crd` が `true`、`storedVersions` が §2.2 の 9 と同じ（1 つずつ）、`Established` が `True` であることを上の jq で見る（2026-10-25 は 10 個とも `0.90.1`、ラベルは 4 つだけ `true`、Established `True`）
 - この時点で operator は v0.90.1 のまま動いている。新しい CRD の schema で古い operator が困らないことは dev で確かめた（戻しのときに 85.2.1 が新しい CRD で動いた）。CRD の後に CRD 以外を流すまでの間を空けない（数分以内）
 
@@ -367,7 +371,7 @@ $K rollout status daemonset/node-exporter --timeout=15m
 | dev の時刻 | できごと | 本番で見ること |
 |---|---|---|
 | +0〜7 秒 | 新しい operator（v0.94.1）の Pod が Pending。Job 2 つが作られる。古い operator が新しい CR から StatefulSet を作り直し（中間の revision）、pod-1 が入れ替わり始める | Job ができること。古い operator は Ready のまま |
-| +24 秒 | 新しい operator が restart 1（`open /cert/tls.crt: no such file or directory`） | **restart は 2 まで許す** |
+| +24 秒 | 新しい operator が restart 1（`open /cert/tls.crt: no such file or directory`） | **restart は 2 まで許す**。本番（2026-10-26）は restart 0（イメージの pull の間に Secret が作り直された） |
 | +23〜27 秒 | create Job が Secret `kube-prometheus-admission` を作り直す: **型が `Opaque` → `kubernetes.io/tls`、UID が変わり、キーが `ca`・`cert`・`key` に `ca.crt`・`tls.crt`・`tls.key` が足される**。create・patch の Job が完了 | `adm=` の列の型・キー・UID |
 | +34 秒 | 新しい operator が restart 2 | — |
 | +38 秒 | 新しい operator だけになり Ready。新しい operator が StatefulSet をもう一度作り直し（最後の revision）、pod-0 が入れ替わる | 古い operator の Pod が消える |
@@ -474,8 +478,8 @@ kubectl --context fraction -n monitoring get pvc $C -o custom-columns=N:.metadat
 
 次のどれかに当たったら、その場で止めて報告する。続けるか §7 で戻すかはユーザーが決める。
 
-- §2.6 の `diff` の rc が 1 より大きい、`conflict` が出る、CRD の served・storage の版に差がある、Prometheus の CR の `storage` に差がある、Deployment・DaemonSet・Service の `selector` に差がある、dry-run の数（configured 117・created 3・unchanged 5、CRD は 10 個とも `serverside-applied`）と違って説明がつかない、dry-run にエラーがある
-- CRD の apply が rc 0 でない、`conflict` が出る、10 個のうち `serverside-applied` でないものがある
+- §2.6 の `diff` の rc が 1 より大きい、apply の conflict が出る（dry-run が rc 0 にならない、`serverside-applied` にならない。§2.6 の last-applied の移行の Warning は除く）、CRD の served・storage の版に差がある、Prometheus の CR の `storage` に差がある、Deployment・DaemonSet・Service の `selector` に差がある、dry-run の数（configured 117・created 3・unchanged 5、CRD は 10 個とも `serverside-applied`）と違って説明がつかない、dry-run にエラーがある
+- CRD の apply が rc 0 でない、Warning でない `conflict` のエラーが出る、10 個のうち `serverside-applied` でないものがある
 - CRD 以外の apply が 2 回続けて rc 0 にならない、immutable のエラーが出る
 - **新しい operator が apply から 3 分たっても Ready にならない**、restart が 3 以上になる（create Job が Secret を作り直した後も落ちる）
 - create Job が失敗する（`jobs=` の failed が 1 以上で、Secret が `kubernetes.io/tls` にならない）
