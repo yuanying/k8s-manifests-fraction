@@ -49,3 +49,67 @@
 - `fs/data-restore` は Running、restartCount 0 のまま
 - 止まっていた時間（`probe.log`）: `data`（NFS）は 10:00:27〜10:01:00 の `FAIL`（約 36 秒）、`data-ssh` は 10:00:24〜10:01:05（約 41 秒）。10:01:43 に SSH のバナーが返った。見込み（2〜5 分）よりずっと短い
 - `watch.log`: degraded・faulted は出ていない
+
+## 3. 段 B: `homegallery` と `fs/h2`（§4.5）
+
+段 A の確かめが全部合格したので、続けて流した（§9 の 2）。10:02:03 の前の確認で、3 本とも attached/healthy、エンジンが `$OLD_IM`、share-manager は v1.11.2 のまま。次の `tumblr-like` は 12:38。
+
+| 時刻 | できごと |
+|---|---|
+| 10:02:14 | ✋ `scale deploy/tumblr-web deploy/ero-web --replicas=0` |
+| 10:02:46 | 4 つの Pod が消えた（32 秒。RollingUpdate の Pod の grace） |
+| 10:02:56 | tumblr-data detached |
+| 10:02:59 | ero-data detached。share-manager は 2 つとも `stopping` |
+| 10:03:13 | share-manager が 2 つとも `stopped`、Pod が無い（`status.currentImage` は空になった） |
+| 10:03:18 | ✋ `scale deploy/h2 --replicas=0` |
+| 10:03:23 | Pod `h2-6cb59468bd-lpdks` が消えた |
+| 10:03:32 | h2 detached |
+| 10:03:35 | **古い instance-manager の Pod が Terminating**（中のエンジンが 0 になった） |
+| 10:03:43 | ✋ `scale deploy/h2 --replicas=1` |
+| 10:03:49〜54 | h2 attached（chirico）→ healthy |
+| 10:03:55 | rollout 完了。Pod `h2-6cb59468bd-jlpb2`（chirico）。**`$OLD_IM` の CR と Pod が NotFound** |
+| 10:04:17 | h2 の NFS・SSH・LB、aphrael の service proxy が答える |
+| 10:04:24 | ✋ `scale deploy/tumblr-web deploy/ero-web --replicas=2`。share-manager の Pod が v1.13.0 で作られた |
+| 10:04:33〜36 | ero-data・tumblr-data が attached/healthy（chirico） |
+| 10:04:42 | rollout 完了。tumblr-web・ero-web は chirico と duchamp に 1 つずつ |
+
+- detach の後の chirico の iSCSI（10:03:35）: 10.244.8.216 のセッションは 0。残ったのは 10.244.8.60 の 2 本（`prometheus-…-0` と、段 A で戻した `fs/data`）。`/dev/longhorn/` に 3 本が無い。I/O エラーは無い。iscsid の MainPID は同じ。**3 本とも `older-than-iscsid` のエンジンだったが、古いセッションは残らなかった**
+- h2 の Pod は chirico（replica のあるノード）に載ったので、data locality の rebuild は起きなかった
+- 古い instance-manager は、最後のエンジンが止まってから数秒で Longhorn が消した（§6 の「消えない」には当たらない）
+- homegallery の `FailedMount` の event は無い
+- 止まっていた時間（`probe.log`）:
+
+  | もの | `FAIL` の始め〜終わり | 長さ |
+  |---|---|---|
+  | homegallery の tumblr・ero（service proxy） | 10:02:15〜10:04:40 | 約 2 分 25 秒 |
+  | `h2`（NFS） | 10:03:23〜10:03:53 | 約 30 秒 |
+  | `h2-ssh`・`h2-sshd-lb` | 10:03:21〜10:03:58 | 約 37 秒 |
+  | aphrael の service proxy | 無し | — |
+
+## 4. 後の確認（§4.6、10:05〜10:06）
+
+`notes/longhorn-old-im/after/`、`state.diff`、`node-after-*.txt`、`pods-after.txt`。
+
+| # | 確認 | 結果 |
+|---|---|---|
+| 1 | 4 つのボリューム | attached/healthy（4 本とも chirico）、replica running 2、`failedAt` なし |
+| 2 | エンジン | 4 本とも `instance-manager-ed03b277…`（chirico、v1.13.0）。`state.diff` の `engines.tsv` の差はこの 4 行だけ |
+| 3 | instance-manager | 4 つ、どれも v1.13.0・running。`$OLD_IM` は CR も Pod も NotFound |
+| 4 | share-manager | 2 つとも running、`status.currentImage` v1.13.0、Pod のイメージ v1.13.0（10:04:24 の作成）。`cg-data` は stopped のまま |
+| 5 | ほかのボリューム | `lh-state.sh` の要約は前と同じ（attached/healthy 16、detached 1、replica running 30・stopped 2）。`state.diff` はエンジンの instance-manager、instance-manager の行、Pod の 3 行（古い instance-manager、share-manager 2）だけ |
+| 6 | iSCSI | chirico は 10.244.8.60 に 5（4 本と `prometheus-…-0`）、10.244.8.216 は 0。duchamp 3、oeilvert 8、pablo 0 は前と同じ。どのノードも portal は今の instance-manager の IP だけ |
+| 7 | iscsid | 4 台の MainPID は前と同じ |
+| 8 | Pod | Running / Completed 以外 0。`pods-before.txt` との差は、data、h2、tumblr-web 2、ero-web 2、share-manager 2、古い instance-manager だけ。aphrael 4、`comics-webdav`、`*-restore` 3 の UID・restartCount は同じ |
+| 9 | アプリ | プローブ 8 つが ok。`data.fs.svc`・`h2.fs.svc` の 22 と `h2-sshd` の LB がつながる。`www.fraction.jp` 200。`h.iwaco.pink`・`comics-webdav.iwaco.pink` は 401（認証。前と同じ形）。`comics-webdav` の service proxy の `/` は 404 だが、アプリの応答（ログにも 404 が出る。ファイルのパスで配っていて、`/` には何も返さない） |
+| 10 | Trivy | `pod-767f7c764c`（instance-manager v1.11.2）は NotFound。share-manager の `pod-7596f8df9b`・`pod-6ccd6c447c` は**同じ名前のまま新しい Pod のレポートになった**（10:04:31・10:04:40 の作成、owner は新しい Pod の UID、`longhorn-share-manager:v1.13.0`、Critical 1・High 8）。v1.11.2 のレポートは 0 |
+| 11 | ノード | 8 台 Ready。Longhorn の Node 4 つが Ready・schedulable |
+| 12 | 監視 | 10:06 に止めた。`watch.log` に degraded・faulted は 0 |
+| 13 | 片付け | 10:06 にトークンのファイルを消した（シェルの変数には置かず、毎回ファイルから読んだ） |
+
+## 5. 手順書との差
+
+- **§4.6 の 10・§2.6 の Trivy のレポートの名前**: share-manager のレポートの名前は Pod の名前のハッシュで、share-manager の Pod の名前は作り直しても同じなので、新しい Pod のレポートが同じ名前で作られた（古いレポートは Pod とともに消え、数秒〜十数秒で同じ名前のものができる）。「名前が無いこと」ではなく、そのレポートのタグが v1.13.0 であることで確かめる。手順書を直した
+- **§4.5 の 2 の share-manager**: ボリュームが detached になった直後の `sm_state` は `stopping` で、`stopped` になるまで 14 秒ほどかかった。待つ形に直した
+- **§5 の止まる時間**: 見込みよりずっと短かった（`fs/data` 約 40 秒、`fs/h2` 約 40 秒、homegallery 約 2 分 30 秒、作業全体で 10:00〜10:06）。Pod が同じノードに戻り、イメージの pull が要らなかったため。実際の値を足した
+- **§4.3 の監視**: 手順書は `&` で流す形だが、今回はハーネスのバックグラウンド実行で 1 つずつ起動し、ファイルに追記した。中身は同じ
+- `comics-webdav` の service proxy の `/` はふだんから 404 を返す（§6 の「NFS の頼り手が戻らない」の見方に書き足した）
