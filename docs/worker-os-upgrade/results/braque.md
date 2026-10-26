@@ -310,4 +310,4 @@ coordinator から、00:1xZ にユーザーの `ssh dev@h2.fs.svc.fraction.clust
 
 ## 10. その後の変更
 
-- 2026-10-26: ZFS の vdev のエラーと scrub の結果を Prometheus で見るため、`zpool status` を node-exporter の textfile に書く systemd timer を置く（`../../zfs-monitoring/runbook-zpool-textfile.md`）。同じ手順書の §7 で、textfile のディレクトリに残っていた古い `zfs.prom`（2023 年の無関係なダンプ）を消す。zed の通知は設定しない（同 §8）
+- 2026-10-26: ZFS の vdev のエラーと scrub の結果を Prometheus で見るため、`zpool status` を node-exporter の textfile に書く systemd timer を置いた（`../../zfs-monitoring/runbook-zpool-textfile.md`）。同じ手順書の §7 で、textfile のディレクトリに残っていた古い `zfs.prom`（2023 年の無関係なダンプ）を `/root/zfs.prom.bak-20261026` に退避して消した。zed の通知は設定しない（同 §8）。導入の記録は `../../zfs-monitoring/record.md`
