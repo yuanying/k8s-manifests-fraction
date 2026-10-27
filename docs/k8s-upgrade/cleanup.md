@@ -185,7 +185,7 @@ subjects の ServiceAccount がすべて無い（名前空間ごと無いか、S
 | ConfigMap `kube-system/kube-flannel-cni-sh` | 2018-01-29 | flannel の名残（CNI は 2026-10-17 から cnidaria） | 消す |
 | Job `kube-system/update-storage-objects` と SA `storage-objects-updater` | 2018-10-19 | 2018 年に 1 回成功した Job（`zlabjp/update-storage-objects:1.1.0`） | 消す |
 | Secret `kube-system/cilium-ca`・`cilium-cli-helm-values`・`hubble-server-certs` | 2022-12-01 | cilium を試した名残。cilium の Pod・CRD は無い | 消す（**Secret なので控えは秘密情報を含む。§11.2**） |
-| Secret `kube-system/sealed-secrets-key*`（23 個） | 2023-03-26〜2024-12-15 | sealed-secrets のコントローラの鍵。コントローラも CRD も無く、どのリポジトリにも `kind: SealedSecret` は無い（fleet-infra は sops） | **ユーザー判断**。消すと、手元のどこかに SealedSecret が残っていた場合に復号できなくなる。既定は残す |
+| Secret `kube-system/sealed-secrets-key*`（39 個。2026-10-27 の消す前の確かめで数え直した。最初の読み取りの 23 個は数え違い） | 2023-03-26〜2026-05-10（毎月 1 個。2026-01 からは 06:01Z。manager は `controller`。コントローラは 2026-05 まで動いていた） | sealed-secrets のコントローラの鍵。コントローラも CRD も無く、どのリポジトリにも `kind: SealedSecret` は無い（fleet-infra は sops） | **ユーザー判断**。消すと、手元のどこかに SealedSecret が残っていた場合に復号できなくなる。既定は残す |
 | PriorityClass `kubevirt-cluster-critical` | 2023-04-19 | 使う Pod 0 | 消す |
 | ノードのラベル `kubevirt.io/schedulable`（chirico・oeilvert）・`cpumanager=false`（chirico・duchamp・oeilvert）、注釈 `kubevirt.io/heartbeat`（chirico・duchamp・oeilvert） | — | kubevirt の virt-handler が付けたもの。どの nodeSelector・affinity も使わない | 消す |
 
@@ -227,7 +227,8 @@ done
 
 ### 5.4 確かめ
 
-- §5.1 の検出をもう一度流し、残るのが §5.1 の既定の RBAC の 5 つだけになること
+- §5.1 の検出をもう一度流し、残るのが §5.1 の既定の RBAC の 5 つだけになること（下の 2 つも消した後）
+- SA `pod-checkpointer`・`storage-objects-updater` を消すと、その SA に `cluster-admin` を結び付ける ClusterRoleBinding `remora:pod-checkpointer`（2017-10-10）・`update-storage-objects`（2018-10-19）が subjects のいない binding になる（消す前は SA があったので §5.1 の検出に出なかった）。この一覧には入れていなかったが、2026-10-27 にユーザーの承認を得て、SA を消した後に 2 つとも消した（`results/cleanup/summary.md` §1.5）。消す前に subjects の SA が無いことを確かめ、控えを取って `kubectl-admin delete clusterrolebinding remora:pod-checkpointer update-storage-objects`。戻し方は §5.5 と同じ
 - `kubectl --context fraction auth can-i --list --as=system:serviceaccount:kube-system:infra-admin` などで、今の SA の権限が変わっていないこと（消したのは subjects のいない binding だけなので変わらない）
 - MetalLB・kube-prometheus・Longhorn・metrics-server・CoreDNS の Pod が Running のまま、restart が増えない
 
@@ -318,6 +319,9 @@ ssh -n yuanying@<IP> "for i in \$(cat /tmp/k8u-rmi-<ノード>.txt); do $C rmi \
 - control-plane（rasp01〜03）は `ubuntu@`、`unset LC_ALL` してから入る
 - 順: rasp01 → rasp02 → rasp03 → braque → pablo → duchamp → oeilvert → chirico（小さいものから。chirico は 213 タグで最後）
 - 消した後の空きは containerd の GC（content と snapshot）が非同期に回収する。`df` の変化は数分おいて見る
+- 使用中の判定には `crictl ps -a` の `imageRef` に加えて `ctr -n k8s.io containers ls` のイメージ（sandbox のコンテナを含む）と `/etc/containerd/config.toml` の `sandbox` を入れる。`k8s.gcr.io/pause:3.6` は containerd の `pinned` の印が残っているが、今の sandbox は `registry.k8s.io/pause:3.10.1` で、どの sandbox も 3.6 を使わないので消してよい
+- 消す直前に取り直した一覧を前の一覧と照らすときは並べ替えてから比べる（`crictl images` の並びは毎回同じではない）
+- 1.5 GiB ほどの大きいイメージ（open-webui）は `crictl rmi` が時間切れで失敗を返すことがあるが、containerd は消し終える（もう一度 `rmi` すると `no such image`）
 
 ### 7.4 確かめ
 
@@ -443,10 +447,10 @@ etcd のスナップショットは Secret を含むので、消すときは `rm
 |---|---|---|---|
 | 各台の `/root/k8u-stage-c/`（33〜70M） | 段 C（`results/stage-c/summary.md`） | 8 台ともある。containerd 2.2.1 の version 3 の config などの控え | **containerd の config v4 が終わるまで残す**（計画 §5.7 の 2.2.1 への戻しの材料）。その後に消す |
 | worker 5 台の `/etc/containerd/config.toml.porkadot-bak.2026101{7,8}` | 段 C | ある | 同上 |
-| worker 4 台の `/root/cluster-dns.service.bak-2026101{7,8}`、braque の `/root/zfs.prom.bak-20261026`、control-plane の `/root/netplan.bak.20261016*` | 段 C・前のタスク | ある | 消してよい（4 KB〜8 KB。ユーザー判断で残してもよい） |
+| worker 5 台（oeilvert を含む）の `/root/cluster-dns.service.bak-2026101{7,8}`、braque の `/root/zfs.prom.bak-20261026`、control-plane の `/root/netplan.bak.20261016*` | 段 C・前のタスク | ある | 消してよい（4 KB〜8 KB。ユーザー判断で残してもよい） |
 | oeilvert の `/var/lib/kubelet/cpu_manager_state.bak-k8u8` | 段 8（`results/stage-8/workers.md`） | ある | 消してよい |
 | apt の `rc` の `containerd` 2.2.1（8 台）、oeilvert の `docker.io` 29.1.3 | 段 C（runbook-stage-c §8.7） | `rc`（設定だけ残る） | 段 C の方針どおり purge しない（戻しの手順が `rc` を前提にしているかを確かめてから。containerd の config v4 の後に判断） |
-| worker 4 台の `/etc/apt/sources.list.d/docker.list.disabled-2026101{7,8}` と `/usr/share/keyrings/docker.gpg` | 段 C（runbook §8.5） | ある。今の Docker のリポジトリは `docker.sources`・`docker.asc` | 消してよい |
+| worker 4 台（braque・pablo・duchamp・chirico）の `/etc/apt/sources.list.d/docker.list.disabled-2026101{7,8}` と `/etc/apt/keyrings/docker.gpg`（`docker.list.disabled` の `signed-by` が指す。参照はそれだけ） | 段 C（runbook §8.5） | ある。今の Docker のリポジトリは `docker.sources`・`docker.asc` | 消してよい |
 | worker の `dpkg -l` の `rc` の 251〜391 個 | OS の更新（前のタスク） | ある | このタスクの外（OS） |
 | Longhorn の `replica-auto-balance` を `least-effort` に戻すか | 段 C | `disabled` のまま | 片付けではない。ユーザーに聞く項目として残す |
 | fraction-auditor が default などで強い権限を持つ（`notes/backlog.md` 2026-10-25） | backlog | 出どころは fleet-infra の `infrastructure/commons/rbac-base`（Role `developer` = `*`、RoleBinding `developer` → `kube-system/infra-auditor`）。default・fs・minecraft・minecraft2・minecraft3・sites の 6 つ（`infrastructure/commons/rbac-<名前空間>`）と、マニフェストの無い ml-study の 1 つ（§2） | 意図した設定と読める（fleet-infra の管理下）。片付けの対象にしない。権限を絞るかはユーザーの判断（backlog に戻す） |
