@@ -141,7 +141,7 @@ curl -s  -H "Authorization: Bearer $T" -H "Accept: $A" https://ghcr.io/v2/yuanyi
 | `watch.sh dry-run\|up\|clients\|logs <dir>\|down` | up・clients・down | 一時的な名前空間 `k8u-cni012`（`watch.yaml`）。下の表 |
 | `newpods.sh <logdir> <秒>` | Pod の作成と削除 | 8 台のそれぞれで、`role=client` の Pod を作り、Ready を待ち、Pod の中から srv-a・srv-b の 8080 に届くまでの秒数と srv-a の 9090 が止まることを見て、消し、2 秒待つ、を `<秒>` の間くり返す。1 Pod 1 行で `<logdir>/newpods.log` |
 | `prepull.sh` | containerd のイメージ | 8 台で 1 台ずつ `crictl pull ghcr.io/yuanying/cnidaria-cni:v0.1.2`（§2.4） |
-| `env-fraction.sh` | — | cnidaria の手順書のスクリプト（`verify-nodes.sh`・`check-apps.sh`・`netcheck.sh`・`kadmin.sh`）に渡す `RUNBOOK_ENV`。段 8 の写しの env と同じく、`IMAGE`（`image_nft` の nft のイメージ）を v0.1.1、`CHECK_URLS` の v6 を今のプレフィックス、`FRACTION` を checkout にする（`FRACTION_CHECKOUT` で替えられる） |
+| `env-fraction.sh` | — | cnidaria の手順書のスクリプト（`verify-nodes.sh`・`check-apps.sh`・`netcheck.sh`・`kadmin.sh`）に渡す `RUNBOOK_ENV`。段 8 の写しの env と同じく、`IMAGE`（`image_nft` の nft のイメージ）を v0.1.1、`CHECK_URLS` の v6 を今のプレフィックス、`FRACTION` を checkout にする（`FRACTION_CHECKOUT` で替えられる）。**既定の `worktrees/runbook-cnidaria-0-1-2` は #67 の後に片付けたので、当日は `export FRACTION_CHECKOUT=<当日の checkout>` してから流す**（2026-10-27 の本番。netcheck の `kadmin.sh` がそこの sops の kubeconfig を読む） |
 
 `watch.yaml` と `watch.sh clients` で作るもの（dev の `servers.yaml`・`clients.sh` と同じ形で、ノードを本番の値にした）:
 
@@ -394,7 +394,7 @@ kubectl --context fraction -n kube-system rollout status ds/cnidaria --timeout=5
 - `dswatch.log` で、1 台ずつ古い Pod が `:T` になって消え、そのノードに新しい Pod（`v0.1.2`）が作られて `R` になるのを見る。各ノードの古い Pod の止まった時刻と新しい Pod の Ready の時刻を控える（dev の記録の「入れ替わり」の表と同じ形）。dev では 1 台あたり 3〜6 秒、7 台で 33 秒（pull あり）・8 秒（pull なし）
 - **どの時点でも Ready でない cnidaria の Pod は 1 つまで**（`ready=` が 7 を下回らない）
 - **新しい Pod が 2 分たっても Ready にならないときは止める**（§5）。rollout はそこで止まり、ほかのノードは古い Pod のまま。`ImagePullBackOff` なら §2.4 が効いていない
-- 新しい Pod の起動直後の `Readiness probe failed: … connection refused` が 1 回出て、10 秒以内に Ready になるのは想定どおり（§7.2）。記録する
+- 新しい Pod の起動直後の `Readiness probe failed: … connection refused` が 1〜2 回出て、10 秒ほどで Ready になるのは想定どおり（§7.2。2026-10-27 の本番では 7 つが 1 回で 0〜2 秒、duchamp の 1 つが 2 回で 11 秒）。記録する
 - `dswatch.log` の `lh` が `healthy=14` から変わったら、時刻を控える（§5）
 - `probe.log` に `FAIL` が出たら、時刻と対象を控える
 
@@ -417,7 +417,7 @@ for n in 192.168.1.111 192.168.1.112 192.168.1.113 braque chirico duchamp oeilve
 | # | 確認 | 合格基準 |
 |---|---|---|
 | 1 | DaemonSet | generation が 1 つ増える（3 → 4）、observed も 4。desired・ready・updated・available が 8。イメージが `v0.1.2`。ほかの項目（§2.2 の 3）が同じ |
-| 2 | cnidaria の Pod | **8 つとも新しい Pod で、v0.1.2・Ready・restart 0**。imageID が amd64 は `sha256:497c4354…`、arm64 は `sha256:726fe846…`（§1.5）。古い 8 つが無い |
+| 2 | cnidaria の Pod | **8 つとも新しい Pod で、v0.1.2・Ready・restart 0**。imageID が `ghcr.io/yuanying/cnidaria-cni@sha256:68756535d44a…`（§1.5 の index。事前 pull したイメージは repo digest の形で出る）、ノードの `crictl images` の ID が amd64 は `497c4354be2d…`、arm64 は `726fe8469ab5…`（§1.5 の config）。古い 8 つが無い |
 | 3 | ControllerRevision | 新しい revision 5 ができ、新しい Pod の `controller-revision-hash` がそれ。revision 1〜4 は残る（§6 で使われうる） |
 | 4 | cnidaria のログ | **新しい 8 つの Pod のログが info だけ**（`error` 0）。nftables の table を当て直した行（`applied the nftables table`）が各 Pod にある。`results may be incomplete` の `Reconciler error` が 1 回出て再試行で消えるのは、2026-10-20 の本番の見つけたことの 2 と同じとして記録する（続くなら §5） |
 | 5 | `/opt/cni/bin` | 8 台とも `cni-bin.txt` が §2.2 の 9 と同じ（一覧・sha256・大きさ・mtime・**ctime**・版の印・plugins の版）。cnidaria のバイナリは無いまま |
@@ -534,11 +534,11 @@ dev の見つけたことの 2 と同じ。NetworkPolicy の許可（ingress の
 
 ### 7.2 readinessProbe の 1 回の失敗
 
-dev の見つけたことの 3 と同じ。readinessProbe に `initialDelaySeconds` が無く `periodSeconds: 10` なので、新しい Pod の最初の probe が daemon の `:19080` の開く前に当たると `connection refused` になり、次は 10 秒後になる。daemon は起動の時点で table を当て直しているので、データプレーンには影響せず、rollout が長くなるだけ（8 台で最長 80 秒ほど延びる）。`Readiness probe failed` の event が 1 回出て 10 秒以内に Ready になるのは想定どおりとして記録する。直すなら porkadot の `cnidaria.yaml.erb` と cnidaria-cni の `deploy/daemonset.yaml`（範囲の外。§9）。
+dev の見つけたことの 3 と同じ。readinessProbe に `initialDelaySeconds` が無く `periodSeconds: 10` なので、新しい Pod の最初の probe が daemon の `:19080` の開く前に当たると `connection refused` になり、次は 10 秒後になる。daemon は起動の時点で table を当て直しているので、データプレーンには影響せず、rollout が長くなるだけ（8 台で最長 80 秒ほど延びる）。`Readiness probe failed` の event が 1〜2 回出て 10 秒ほどで Ready になるのは想定どおりとして記録する（2026-10-27 の本番では 8 つとも起動の同じ秒に 1 回失敗し、duchamp の 1 つは 2 回で Ready まで 11 秒）。直すなら porkadot の `cnidaria.yaml.erb` と cnidaria-cni の `deploy/daemonset.yaml`（範囲の外。§9）。
 
 ### 7.3 nftables の table の差
 
-`nft -s` は counter を除くが、NetworkPolicy の相手の Pod の IP の集合は table に入る。`longhorn-system` の Pod が作り直されると、chirico・duchamp・oeilvert・pablo の table の集合が変わる。入れ替わりの前後で差が出たら、その間に Pod が変わったか（§4.2 の 11 の比較）と突き合わせて見分ける。`k8u-cni012` の NetworkPolicy の規則は、srv-a・srv-b のノード（pablo、.113）の table に、名前空間を作ってから消すまでの間だけ入る（§2.2 の値はその前、§4.2 の値はその間、§4.4 の `final` は消した後）。§4.2 の 7 で比べるときは、`k8u-cni012/` のコメントの行と、その集合を除いて比べる。
+`nft -s` は counter を除くが、NetworkPolicy の相手の Pod の IP の集合は table に入る。`longhorn-system` の Pod が作り直されると、chirico・duchamp・oeilvert・pablo の table の集合が変わる。入れ替わりの前後で差が出たら、その間に Pod が変わったか（§4.2 の 11 の比較）と突き合わせて見分ける。`k8u-cni012` の NetworkPolicy の規則は、srv-a・srv-b のノード（pablo、.113）の table に、名前空間を作ってから消すまでの間だけ入る（§2.2 の値はその前、§4.2 の値はその間、§4.4 の `final` は消した後）。§4.2 の 7 で比べるときは、`k8u-cni012/` のコメントの行と、その集合を除いて比べる。既存の集合 `isolated_ingress_v4`・`isolated_ingress_v6` にも、NetworkPolicy の対象になった srv-a（pablo）・srv-b（.113）の IP が入る（2026-10-27 の本番で pablo 265 → 295 行、.113 110 → 140 行）。これも `k8u-cni012` の差として除く。
 
 ### 7.4 image GC と古いイメージ
 
@@ -553,6 +553,8 @@ pin を外したので、**以後 porkadot のリリースで `default.yaml` の
 `results/cnidaria-0.1.2/` に、ベースライン（`baseline.md`。§1.1 の前提、§2.2 の表、§2.4 の事前 pull、§2.5 のバックアップ、§2.3 の監視の起動）と、作業の記録（`summary.md`。§3.2 の出力の要点、§4.1 の入れ替わりの表（各ノードの古い Pod の止まった時刻と新しい Pod の Ready の時刻）、§4.2 の各項目、§4.3 の結果、監視の FAIL・OPEN、新しい Pod の 8080 に届くまでの秒数、§4.4 の片付け、手順書との差）を残す。形は `../k8s-upgrade/results/coredns-seccomp/` に合わせる。
 `snap.sh`・`nodes.sh`・`verify-nodes.sh`・`check-apps.sh`・`dns-check.sh`・`watch.sh logs` の出力と監視のログ（`dswatch.log`、`probe.log`、`newpods.log`）はタスクディレクトリの `notes/cnidaria-0-1-2/` に置き、要点を記録に写す。
 手順書と実際の作業の差は、作業の後にこの手順書に反映する（記録の PR で）。
+
+2026-10-27 10:37〜10:51Z に本番で実施した。記録は `results/cnidaria-0.1.2/baseline.md`・`summary.md`。手順書との差（imageID の形、readinessProbe の 2 回の失敗、`FRACTION_CHECKOUT`、`isolated_ingress` の集合）は §1.6・§4.1・§4.2・§7.2・§7.3 に反映した。
 
 ## 9. この後
 
