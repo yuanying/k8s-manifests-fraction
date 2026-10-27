@@ -1,0 +1,67 @@
+件数	CRD	作成	保存の版	ラベル
+1	accesstokens.gate.unstable.cloud	2026-08-22T07:55:32Z	v1alpha1	app.kubernetes.io/component=crd
+0	alertmanagerconfigs.monitoring.coreos.com	2026-05-22T08:53:22Z	v1alpha1	crd=true
+1	alertmanagers.monitoring.coreos.com	2026-05-22T08:53:23Z	v1	crd=true
+0	backingimagedatasources.longhorn.io	2022-03-21T05:36:44Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	backingimagemanagers.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	backingimages.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	backupbackingimages.longhorn.io	2024-05-16T07:26:21Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	backups.longhorn.io	2022-03-21T05:36:44Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+1	backuptargets.longhorn.io	2022-03-21T05:36:44Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	backupvolumes.longhorn.io	2022-03-21T05:36:44Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	bfdprofiles.metallb.io	2023-04-09T07:32:54Z	v1beta1	
+0	bgpadvertisements.metallb.io	2023-04-09T07:32:54Z	v1beta1	
+0	bgppeers.metallb.io	2023-04-09T07:32:54Z	v1beta2	
+0	clustercompliancereports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	clusterconfigauditreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	clusterinfraassessmentreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	clusterrbacassessmentreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	clustersbomreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	clustervulnerabilityreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	communities.metallb.io	2023-04-09T07:32:54Z	v1beta1	
+0	configauditreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+8	configurationstates.metallb.io	2026-10-25T02:11:15Z	v1beta1	
+0	enginefrontends.longhorn.io	2026-10-20T18:45:23Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+1	engineimages.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+14	engines.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	exposedsecretreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+0	infraassessmentreports.aquasecurity.github.io	2026-10-26T05:15:22Z	v1alpha1	app.kubernetes.io/component=crd
+4	instancemanagers.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	instancemanagerupgradecontrols.longhorn.io	2026-10-21T02:59:52Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	instancemanagerupgrades.longhorn.io	2026-10-21T02:59:52Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+1	ipaddresspools.metallb.io	2023-04-09T07:32:56Z	v1beta1	
+1	l2advertisements.metallb.io	2023-04-09T07:32:56Z	v1beta1	
+15	networkrolebindings.gate.unstable.cloud	2026-08-22T07:55:32Z	v1alpha1	app.kubernetes.io/component=crd
+15	networkroles.gate.unstable.cloud	2026-08-22T07:55:32Z	v1alpha1	app.kubernetes.io/component=crd
+0	nodefeaturegroups.nfd.k8s-sigs.io	2025-03-16T07:58:53Z	v1alpha1	
+0	nodefeaturerules.nfd.k8s-sigs.io	2023-09-02T00:44:38Z	v1alpha1	
+0	nodefeatures.nfd.k8s-sigs.io	2023-09-02T00:44:38Z	v1alpha1	
+0	nodenetworkpolicies.cnidaria.unstable.cloud	2026-10-17T05:32:17Z	v1alpha1	
+4	nodes.longhorn.io	2021-08-18T00:56:56Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	orphans.longhorn.io	2022-09-19T09:58:47Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+1	podmonitors.monitoring.coreos.com	2026-05-22T08:53:08Z	v1	crd=true
+0	probes.monitoring.coreos.com	2026-05-22T08:53:09Z	v1	crd=true
+0	prometheusagents.monitoring.coreos.com	2026-05-22T08:53:29Z	v1alpha1	crd=true
+1	prometheuses.monitoring.coreos.com	2026-05-22T08:53:30Z	v1	crd=true
+41	prometheusrules.monitoring.coreos.com	2026-05-22T08:53:10Z	v1	crd=true
+0	rbacassessmentreports.aquasecurity.github.io	2026-10-26T05:15:23Z	v1alpha1	app.kubernetes.io/component=crd
+0	recurringjobs.longhorn.io	2022-03-21T05:36:44Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+27	replicas.longhorn.io	2021-08-18T00:56:57Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	sbomreports.aquasecurity.github.io	2026-10-26T05:15:23Z	v1alpha1	app.kubernetes.io/component=crd
+1	scrapeconfigs.monitoring.coreos.com	2026-05-22T08:53:34Z	v1alpha1	crd=true
+0	servicebgpstatuses.metallb.io	2026-10-25T02:11:15Z	v1beta1	
+5	servicel2statuses.metallb.io	2024-05-12T11:36:54Z	v1beta1	
+15	servicemonitors.monitoring.coreos.com	2026-05-22T08:53:11Z	v1	crd=true
+120	settings.longhorn.io	2021-08-18T00:56:57Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	shardgroups.longhorn.io	2026-10-20T18:45:23Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	shards.longhorn.io	2026-10-20T18:45:23Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	sharemanagers.longhorn.io	2021-08-18T00:56:57Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	snapshotgroups.longhorn.io	2026-10-21T02:59:52Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+16	snapshots.longhorn.io	2022-09-19T09:58:53Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	supportbundles.longhorn.io	2023-04-16T04:46:08Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	systembackups.longhorn.io	2023-04-16T04:46:08Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	systemrestores.longhorn.io	2023-04-16T04:46:08Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+0	thanosrulers.monitoring.coreos.com	2026-05-22T08:53:40Z	v1	crd=true
+14	volumeattachments.longhorn.io	2024-05-15T12:36:07Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+14	volumes.longhorn.io	2021-08-18T00:56:57Z	v1beta2	app.kubernetes.io/instance=longhorn,app.kubernetes.io/name=longhorn,app.kubernet
+124	vulnerabilityreports.aquasecurity.github.io	2026-10-26T05:15:23Z	v1alpha1	app.kubernetes.io/component=crd
