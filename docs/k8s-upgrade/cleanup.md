@@ -227,8 +227,8 @@ done
 
 ### 5.4 確かめ
 
-- §5.1 の検出をもう一度流し、残るのが §5.1 の既定の RBAC の 5 つと、下の 2 つだけになること
-- SA `pod-checkpointer`・`storage-objects-updater` を消すと、その SA に `cluster-admin` を結び付ける ClusterRoleBinding `remora:pod-checkpointer`（2017-10-10）・`update-storage-objects`（2018-10-19）が subjects のいない binding になる（消す前は SA があったので §5.1 の検出に出なかった）。この一覧には入れていなかったので、2026-10-27 の片付けでは残した（`results/cleanup/summary.md` §1.5）
+- §5.1 の検出をもう一度流し、残るのが §5.1 の既定の RBAC の 5 つだけになること（下の 2 つも消した後）
+- SA `pod-checkpointer`・`storage-objects-updater` を消すと、その SA に `cluster-admin` を結び付ける ClusterRoleBinding `remora:pod-checkpointer`（2017-10-10）・`update-storage-objects`（2018-10-19）が subjects のいない binding になる（消す前は SA があったので §5.1 の検出に出なかった）。この一覧には入れていなかったが、2026-10-27 にユーザーの承認を得て、SA を消した後に 2 つとも消した（`results/cleanup/summary.md` §1.5）。消す前に subjects の SA が無いことを確かめ、控えを取って `kubectl-admin delete clusterrolebinding remora:pod-checkpointer update-storage-objects`。戻し方は §5.5 と同じ
 - `kubectl --context fraction auth can-i --list --as=system:serviceaccount:kube-system:infra-admin` などで、今の SA の権限が変わっていないこと（消したのは subjects のいない binding だけなので変わらない）
 - MetalLB・kube-prometheus・Longhorn・metrics-server・CoreDNS の Pod が Running のまま、restart が増えない
 

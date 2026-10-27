@@ -58,7 +58,7 @@
 
 ### 1.5 一覧に無かったもの（消していない）
 
-- **ClusterRoleBinding `remora:pod-checkpointer`（2017-10-10）・`update-storage-objects`（2018-10-19）。** どちらも `cluster-admin` を kube-system の SA `pod-checkpointer`・`storage-objects-updater` に結び付けている。一覧は SA が残っていたのでこの 2 つを検出していなかった。今回 SA を消したので subjects のいない binding になった。一覧に無いので消していない（ただし同じ名前の SA を作り直すとその SA が `cluster-admin` になるので、消すことを勧める）
+- **ClusterRoleBinding `remora:pod-checkpointer`（2017-10-10）・`update-storage-objects`（2018-10-19）。** どちらも `cluster-admin` を kube-system の SA `pod-checkpointer`・`storage-objects-updater` に結び付けている。一覧は SA が残っていたのでこの 2 つを検出していなかった。今回 SA を消したので subjects のいない binding になった。一覧に無かったのでいったん残して報告した（同じ名前の SA を作り直すとその SA が `cluster-admin` になる）。**ユーザーの承認（2026-10-27）を得て、13:11:08Z に 2 つとも消した。** 消す直前に subjects の SA 2 つが NotFound であることを確かめ、控えを `notes/cleanup/clusterrolebindings-orphaned.yaml` に取った。消した後、subjects のいない binding を出し直すと、一覧 §5.1 の既定の RBAC の 5 つだけになった。Pod・ノード・Longhorn に変化は無い
 - **ClusterRoleBinding `tiller-cluster-rule`（2017-10-10）** は `cluster-admin` を `kube-system/default` に与えている。kube-apiserver の DaemonSet の Pod（3 つ）がこの SA で動いている。Tiller の名残だが、使っている Pod があるので片付けの範囲の外。報告に書いた
 
 ## 2. 単位 B（ノード）
