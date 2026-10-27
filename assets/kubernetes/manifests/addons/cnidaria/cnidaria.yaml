@@ -85,7 +85,7 @@ spec:
       # `porkadot install kubelet` (kubernetes.networking.cni_version).
       containers:
       - name: cnidaria
-        image: ghcr.io/yuanying/cnidaria-cni:v0.1.1
+        image: ghcr.io/yuanying/cnidaria-cni:v0.1.2
         args:
         - --proc-sys=/host/proc/sys
         - --network-name=cbr0
