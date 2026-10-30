@@ -68,7 +68,7 @@ else
   echo "CNI plugins ${CNI_VERSION} already installed"
 fi
 
-RELEASE="v1.37.1"
+RELEASE="v1.37.2"
 
 fetch_kubectl() {
   curl -fL https://dl.k8s.io/${RELEASE}/bin/linux/${architecture}/kubectl -o $1/kubectl
