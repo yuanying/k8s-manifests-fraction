@@ -96,7 +96,7 @@
 
 - 一時的な名前空間 `cnidaria-netcheck`・`k8u-npcheck` は消した（NotFound）
 - `infra-admin` のトークン: 11:30:20Z に 1 時間の期限で発行し、`/tmp/k8u-0376-admin-token`（モード 600）に置いた。NetworkPolicy の確認の 2 回に使い、11:45:10Z にファイルを消した（サーバーの側では 12:30Z ごろに期限が切れる）
-- 監視: `probe.sh`・`dns-watch2.sh` 2 つ・`dns-replicas-watch.sh` は 11:46:20Z に `watch.stop` で止めた。`cp-watch.sh` は 11:46Z にジョブを止めた（作業端末の中だけのループ）。`etcd-probe.sh` の 2 つは、runbook §4.4 では .111 の後に止めるが、読み取りだけなので 1 時間（12:10Z ごろ）で自分で終わるのに任せた（§6 の確認の後に、.111・.112 で `pgrep -af 'etcdctl.*endpoint health'` が空であることを確かめる）
+- 監視: `probe.sh`・`dns-watch2.sh` 2 つ・`dns-replicas-watch.sh` は 11:46:20Z に `watch.stop` で止めた。`cp-watch.sh` は 11:46Z にジョブを止めた（作業端末の中だけのループ）。`etcd-probe.sh` の 2 つは、runbook §4.4 では .111 の後に止めるが、読み取りだけなので 1 時間で自分で終わるのに任せた（12:10:41Z が最後の行で、11:10:43Z からの 1749 行ずつに unhealthy は 0。12:10:48Z に .111・.112 で `pgrep -af 'etcdctl.*endpoint health'` が空で、ノードの側のループは残っていない）
 - etcd のバックアップは worktree `0-37-6-prod` の `./backup/` にある（git には入れていない）。worktree を片付ける前に、メインの checkout の `backup/` へ写す（coordinator）
 
   | ファイル | 中身 | バイト | sha256 |
