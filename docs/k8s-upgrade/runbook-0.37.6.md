@@ -146,7 +146,7 @@ secrets の在りかと扱いは段 1 の手順書 §1.6 と同じ（sops。平�
 | `snap.sh <dir>` | `fraction-auditor` で、server の版、Node、全 Pod（UID・restartCount・phase）、Running / Completed 以外の Pod、kube-system の DaemonSet・Deployment（generation・イメージ）、CoreDNS と autoscaler の Deployment・ReplicaSet・Pod の yaml、ConfigMap `coredns` と Corefile の SHA512・resourceVersion、Service `kube-dns` と EndpointSlice、control-plane と CoreDNS の Pod の events、CoreDNS の各 Pod のログと前のコンテナのログ、kube-proxy のログの conntrack・proxier・`E`・`W` の行、Longhorn のボリューム、CSR |
 | `nodes.sh <dir> [IP...]` | 8 台（または指定の台）に IP で ssh し、このリポジトリの `docs/k8s-upgrade/tools/node-state.sh`（`/opt/bin` の向き先、CNI、iscsid、iSCSI のセッション、Longhorn のエンジン、`initiatorname`）と `node-extra.sh` を流す。このリポジトリのルートを cwd にする |
 | `node-extra.sh` | 1 台の上で: kubelet の MainPID・NRestarts・起動の時刻・版、`kubelet.service`・`config.yaml` の md5 とフラグ・`containerRuntimeEndpoint` の有無、`cpu_manager_state`、cgroup、resolv.conf、`nf_conntrack_max`、`no_turbo`（intel_pstate の台）と最高温度、unattended-upgrades の次の時刻と `-security` の更新、`reboot-required`、iscsid、containerd の CoreDNS と control-plane のイメージ、ディスク、etcd のイメージとフラグ（control-plane） |
-| `node-step.sh <IP> <dir> before\|after [since]` | 1 台の `install kubelet` の前と後に: `node-state.sh` と `node-extra.sh`、その台の Pod と全 Pod の名前・UID・restartCount。`after` では、前との差分（Pod、node-state）、`since` からの kubelet の journal の `E`・`W` の種類、CSR、`kubelet.service` のフラグ・`containerRuntimeEndpoint`・`crictl version` |
+| `node-step.sh <IP> <dir> before\|after [since]` | 1 台の `install kubelet` の前と後に: `node-state.sh` と `node-extra.sh`、その台の Pod と全 Pod の名前・UID・restartCount（**「その台の Pod」は `spec.nodeName=<IP>` で引くので、ノード名が名前の worker では空になる**。全 Pod の比較に含まれるので、2026-10-30 の本番はそれで見た）。`after` では、前との差分（Pod、node-state）、`since` からの kubelet の journal の `E`・`W` の種類、CSR、`kubelet.service` のフラグ・`containerRuntimeEndpoint`・`crictl version` |
 | `etcd-check.sh [since]` | .111 の etcdctl で `endpoint status`（json と table）・`health`・`member list`、3 台の `/version`、動いている etcd のイメージとフラグ、`since` からのログの warn 以上の種類と数 |
 | `prepull.sh <IP> <image>...` | **ノードに書き込む（✋）**。その台で `crictl pull` を流し、入ったイメージを示す（§2.5） |
 | `seccomp.sh <worker の IP>` | seccomp の手順書のもの。その台の `coredns` のコンテナの CRI の seccomp、OCI spec の `linux.seccomp`、capabilities、`/proc/<pid>/status` の `Seccomp` |
@@ -159,7 +159,7 @@ secrets の在りかと扱いは段 1 の手順書 §1.6 と同じ（sops。平�
 
 監視の 3 つ（`probe.sh`、`dns-watch2.sh`、`dns-replicas-watch.sh`）は `<logdir>/watch.stop` を作ると止まる（`dns-watch2.sh` は 60 行ごとに ssh を張り直すので、止まるまで最長 1 分）。`etcd-probe.sh`・`cp-watch.sh` は渡した秒数で終わる。当日の `<logdir>` はタスクディレクトリの `notes/0-37-6/logs`。2026-10-30 09:52Z に 6 つとも本番で 1 分流し、行が足されることを確かめた（DNS 60 サンプルで FAIL 0、probe は 49 サンプルとも VIP と各 apiserver が 200・LB が 404、etcd 3/3 healthy）。
 
-このリポジトリの `tools/storage-versions.sh`・`tools/dns-check.sh`・`tools/npcheck.sh`、cnidaria の手順書の `netcheck.sh`・`verify-nodes.sh`・`check-apps.sh`（段 8 の手順書 §1.8 の env の上書きで）も使う。
+このリポジトリの `tools/storage-versions.sh`・`tools/dns-check.sh`・`tools/npcheck.sh`、cnidaria の手順書の `netcheck.sh`・`verify-nodes.sh`・`check-apps.sh`（段 8 の手順書 §1.8 の env の上書きで）も使う。`RUNBOOK_ENV` はタスクディレクトリの `notes/runbook-cnidaria-0-1-2/scripts/env-fraction.sh` で、**`FRACTION_CHECKOUT` をこの作業の checkout に、`CNIDARIA_NFT_IMAGE` を `ghcr.io/yuanying/cnidaria-cni:v0.1.2` に上書きする**（env の既定の checkout `worktrees/runbook-cnidaria-0-1-2` はもう無い。`kadmin.sh` がそこの sops の admin の kubeconfig を読む）。
 
 ### 1.8 NetworkPolicy の確認（一時的な名前空間） ✋
 
@@ -563,7 +563,7 @@ bash $S/etcd-check.sh "<3 の開始の時刻 UTC>" > $D/etcd-after.txt
 - kube-proxy の 8 つのログに `Setting nf_conntrack_max` が無く、8 台の `nf_conntrack_max` が §2.2 の 12 と同じ
 - Longhorn（17 本、attached healthy 16 と detached の `natsumi-penelope`、エンジン v1.13.0）、iSCSI（8 台の iscsid の PID とセッションが §2.2 の 9 と同じか、変わったものは .112 の起動）、cnidaria（✋ `netcheck.sh`、✋ §1.8 の NetworkPolicy の確認、`verify-nodes.sh`）、MetalLB（v4 と v6 の LB、`check-apps.sh`）、braque の NFS、`registry.fraction.jp`、CSR: 段 8 の手順書 §6 と同じ
 - duchamp の `no_turbo` が 1
-- `kubectl --context fraction top nodes` が応答し、Prometheus の `up == 0` が 0 個、`count(etcd_server_has_leader)` が 3、CoreDNS の scrape（`kube-prometheus-coredns`）が 2 つとも up
+- `kubectl --context fraction top nodes` が応答し、Prometheus の `up == 0` が 0 個、`count(etcd_server_has_leader)` が 3、CoreDNS の scrape（`up{job="coredns"}`。`kube-prometheus-coredns` は Service の名前で、job の名前ではない）が 2 つとも up
 - §2.3 の監視の FAIL（VIP・LB、2 か所の DNS、etcd）の数と時刻を記録する
 - 監視を止める（`touch $L/watch.stop`）。トークンのファイル（`/tmp/k8u-0376-admin-token`）を消す。一時的な名前空間（`k8u-npcheck`、`cnidaria-netcheck`）が NotFound
 - etcd のバックアップ（§2.4、§4.2 の 2 つ）を worktree からメインの checkout の `backup/` へ写す（worktree で流した場合。coordinator が行う）
