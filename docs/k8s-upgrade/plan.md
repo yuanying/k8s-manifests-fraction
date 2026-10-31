@@ -8,6 +8,8 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 
 ## 1. 方針
 
+判断の記録: [ADR 0001](../adr/0001-one-minor-version-per-stage.md)
+
 - 1 段 = 1 マイナー。1.29 → 1.30 → … → 1.37。**前の段が本番で健全になるまで次の段に進まない。**
 - 各段で porkadot の対応版（0.30.x 〜 0.37.x）を用意する。porkadot の PR → dev クラスタでの検証 → リリース → 本番、の順。dev の検証は本番より先に進めてよい。
 - **containerd は段 1 の前（K8s 1.29 のまま）に 2.3 系へ上げる**（段 C。§5）。以後の段の dev の検証も本番も、最終形の containerd の上で行う。
@@ -41,6 +43,8 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 
 ## 3. コンポーネントの分類
 
+判断の記録: [ADR 0003](../adr/0003-critical-and-non-critical-components.md)
+
 **クリティカル** = その K8s の版でサポート外になる・動かなくなる・削除された API を使う・製品自身が段階的な更新しか許さない、のどれかに当たるもの。
 
 | コンポーネント | 今 | 分類 | 根拠 | 扱い |
@@ -63,6 +67,8 @@ containerd も、K8s の段に入る前に 2.2.1 から 2.3 系へ上げる（20
 API の削除は 1.32 の `flowcontrol.apiserver.k8s.io/v1beta3` だけで、本番は使っていない（`survey-2026-10.md` §4）。API の削除を理由にクリティカルになるものは無い。
 
 ## 4. Longhorn の経路
+
+判断の記録: [ADR 0004](../adr/0004-longhorn-upgrade-path.md)
 
 ### 4.1 制約
 
@@ -118,6 +124,8 @@ API の削除は 1.32 の `flowcontrol.apiserver.k8s.io/v1beta3` だけで、本
 - **unattended-upgrades による open-iscsi の更新。** 本番の 8 台とも unattended-upgrades が有効で、open-iscsi は Package-Blacklist に無かった（2026-10-19 の読み取り。全台 open-iscsi 2.1.9-3ubuntu5.5、control-plane の apt の履歴に 5.4 → 5.5 の更新がある）。open-iscsi の更新が自動で入ると、postinst で iscsid が再起動しうる。longhorn#10544 の報告でも apt-daily-upgrade で iscsid が再起動していた。Longhorn のエンジンが直るまでは、これも 1 回目のきっかけになり、次の drain で古いセッションが残る。**対策（2026-10-19 ユーザー承認）**: Longhorn のノード（pablo、duchamp、chirico、oeilvert）に `/etc/apt/apt.conf.d/51fraction-hold-open-iscsi`（`Unattended-Upgrade::Package-Blacklist` に `open-iscsi`・`libopeniscsiusr`）を置いた。open-iscsi は段の作業の中で手で上げる。**Longhorn を v1.12.1 以上にし、全ボリュームのエンジンを新しいイメージにしたら、このファイルを消して戻す**（ユーザー指示。§4.3）。
 
 ## 5. containerd の更新（段 C）
+
+判断の記録: [ADR 0005](../adr/0005-containerd-io-2-3-from-docker-apt.md)
 
 ### 5.1 目標の版: 2.3 系（LTS）の最新パッチ
 
@@ -263,6 +271,8 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 
 ### 6.4 ロールバック
 
+判断の記録: [ADR 0008](../adr/0008-approval-and-credentials-for-production-changes.md)
+
 | どこまで進んだか | 戻し方 |
 |---|---|
 | `install kubernetes` の後、kubelet はまだ前の版 | 前の段の porkadot と、前の段の commit の `assets/` で `install kubernetes` をやり直す。etcd はまだ変わっていない |
@@ -319,6 +329,8 @@ K8s の version skew policy では、kubelet が kube-apiserver より新しく�
 
 ## 8. 最後に上げる非クリティカルなコンポーネント
 
+判断の記録: [ADR 0003](../adr/0003-critical-and-non-critical-components.md)。CoreDNS のイメージは [ADR 0006](../adr/0006-addon-images-from-registry-k8s-io.md)
+
 本番が 1.37 で健全になってから、1 つずつ上げる。目標の版は 2026-10-18 時点の最新で、上げる時点で確かめ直す。
 
 CRD を持つもの（kube-prometheus-stack の `monitoring.coreos.com`、MetalLB の `metallb.io`）は、更新の後に CRD の `status.storedVersions` を見て、古い版が残っていたら §4.3 の末尾と同じ形でカスタムリソースを書き直してから外す（§6.4）。
@@ -340,6 +352,8 @@ CRD を持つもの（kube-prometheus-stack の `monitoring.coreos.com`、MetalL
 
 ### 9.1 承認の粒度
 
+判断の記録: [ADR 0008](../adr/0008-approval-and-credentials-for-production-changes.md)
+
 **計画を一度承認し、その後は次の節目でだけ承認を取る。** 節目の間の runbook どおりの手順は、知らせるだけで進める。
 
 - 段 C の開始（Docker のリポジトリを足す前）と、oeilvert の Docker の入れ替えの前
@@ -355,6 +369,8 @@ CRD を持つもの（kube-prometheus-stack の `monitoring.coreos.com`、MetalL
 **2.3 系（LTS）を、Docker の apt リポジトリの `containerd.io` から、apt の pin で 2.3 系に固定して入れる**（§5）。前タスクの OS 更新で「Ubuntu の containerd に揃える」とした判断を、containerd については戻す（Ubuntu に 2.3 が無いため）。
 
 ### 9.3 drain の要否
+
+判断の記録: [ADR 0002](../adr/0002-drain-decided-by-longhorn-volume-safety.md)
 
 - **段 C**: worker は drain する（前タスクの手順をそのまま使う）。control-plane は drain しない。
 - **K8s の各段（計画の承認のとき）**: worker も drain しない。dev の検証（§6.6）で kubelet の更新でコンテナが再起動しないことを各段で確かめ、再起動する段だけ drain する。
