@@ -276,7 +276,7 @@ ls -l ./backup/
 ```
 
 - 手元のファイルは `./backup/etcd-<日時>.db`、モード 0600。`./backup/` は `.gitignore` で除外してある。スナップショットには Secret が平文で入っているので、`git add -f` などで追加しない。worktree で流したときは、worktree を片付ける前にメインの checkout の `backup/` へ写す（coordinator）
-- 時刻、ファイル名、サイズ、sha256 を記録する（0.37.6 の本番の 2026-10-30 11:21Z のものは 74,612,768 B）。桁が違えば止める
+- 時刻、ファイル名、サイズ、sha256 を記録する（0.37.6 の本番の 2026-10-30 11:21Z のものは 74,612,768 B）。大きさは、.111 で読み取りの `etcdctl endpoint status -w table`（3 台の endpoint）を流し、DB SIZE と比べる。DB SIZE と桁が違えば止める。前のバックアップとの差は、defrag していない etcd の使われていないページの増減で大きく動く（2026-11-06 の本番では 125,042,720 B。DB SIZE 121〜125 MB、IN USE 40 MB。`results/cnidaria-0.1.3/baseline.md` §4）
 - この更新は etcd の restore を要しない見込み（§6 のロールバックは `install kubernetes` で戻す）。このバックアップは想定外のときの最後の手段
 
 ### 2.6 render の差分（この手順書と同じ PR）
@@ -393,11 +393,11 @@ for n in 192.168.1.111 192.168.1.112 192.168.1.113 braque chirico duchamp oeilve
 | 4 | cnidaria のログ | **新しい 8 つの Pod のログが info だけ**（`error` 0）。nftables の table を当て直した行（`applied the nftables table`）が各 Pod にある。`Reconciler error` が出たら中身を見る（v0.1.2 では入れ替わりの後に 0。続くなら §5） |
 | 5 | `/opt/cni/bin` | 8 台とも `cni-bin.txt` が §2.2 の 9 と同じ（一覧・sha256・大きさ・mtime・**ctime**・版の印・plugins の版）。cnidaria のバイナリは無いまま |
 | 6 | conflist | 8 台とも `conflist.txt` が §2.2 の 10 と同じ（一覧・mtime・sha256・中身） |
-| 7 | nftables | 8 台とも `nft-<ノード>.txt` が §2.2 の 11 と同じ。違いがあれば中身を見て、**`k8u-cni013` の差（§7.3）か、Pod の増減で説明できる差（`longhorn-system`・`argocd` の Pod の IP の集合など）か**を見分けて記録する。chain・規則の形が違えば §5 |
+| 7 | nftables | 8 台とも `nft-<ノード>.txt` が §2.2 の 11 と同じ。違いがあれば中身を見て、**`k8u-cni013` の差（§7.3。pablo・.113 と、argocd の集合の chirico）か、Pod の増減で説明できる差（`longhorn-system`・`argocd` の Pod の IP の集合など）か**を見分けて記録する。chain・規則の形が違えば §5 |
 | 8 | 経路 | `verify-nodes.sh` が 64 / 64 PASS、rc 0。`state.txt` の proto 200 が 8 台とも v4 7・v6 7 |
 | 9 | 一時的な名前空間の監視（`watch.sh logs`） | `cli-a`・`cli-b` の `FAIL` が、作った直後の行（§2.3）のほか 0。`cli-a`・`cli-b`・`cli-deny` の `OPEN` が 0。入れ替わりの間の行（`dswatch.log` の時刻と突き合わせる）も同じ。v0.1.2 の本番では FAIL 0・OPEN 0 |
 | 10 | 新しい Pod（`newpods.log`） | **すべての Pod が Ready になり、v4 と v6 のアドレスが付き、srv-a・srv-b の 8080 に届き、9090 が `BLOCKED`**（`NOTREADY`・`NEVER`・`OPEN`・`RESULT none` が 0）。8080 に届くまでの秒数の分布を記録する。v0.1.2 の本番では 1〜2 秒、入れ替わりの間の宛先のノードで 3 秒 |
-| 11 | ほかの Pod | 全 Pod の比較で、**変わったのは cnidaria の Pod と `k8u-cni013` の Pod だけ**（名前・UID・restartCount）。ほかの DaemonSet・Deployment・StatefulSet の generation が同じ（`gens.tsv`。DaemonSet `cnidaria` の 4 → 5 のほか）。Running / Completed 以外が 0（`k8u-cni013` のほか） |
+| 11 | ほかの Pod | 全 Pod の比較で、**変わったのは cnidaria の Pod と `k8u-cni013` の Pod だけ**（名前・UID・restartCount）。trivy-operator が `k8u-cni013` の Pod のイメージをスキャンする Job の Pod（`trivy-system/scan-vulnerabilityreport-…`）が増えていることがある（既存の Pod の変化ではない。記録する）。ほかの DaemonSet・Deployment・StatefulSet の generation が同じ（`gens.tsv`。DaemonSet `cnidaria` の 4 → 5 のほか）。Running / Completed 以外が 0（`k8u-cni013` のほか） |
 | 12 | kubelet | 8 台の MainPID・NRestarts・ActiveEnterTimestamp が §2.2 の 13 と同じ |
 | 13 | Longhorn | 17 とも attached・healthy で、`dswatch.log` の `lh` に `degraded`・`faulted` が一度も出ていない。アタッチ先が §2.2 と同じ（`volumes.tsv`） |
 | 14 | LoadBalancer・VIP・NFS・etcd | `probe.log` の `FAIL` が 0（§5 の範囲なら記録）。`snap.sh` の `lb-nfs.txt` が §2.2 の 16 と同じ。etcd 3/3 healthy |
@@ -435,7 +435,7 @@ rm -f /tmp/k8u-cni013-admin-token
 bash $S/nodes.sh /home/yuanying/.local/state/herdr-tasks/cnidaria-cni-dev/notes/cnidaria-0-1-3/final
 ```
 
-- `final/nft-<ノード>.txt` から `k8u-cni013` の規則が消え、§2.2 の 11 と同じに戻ること（pablo・.113 の table。§7.3）
+- `final/nft-<ノード>.txt` から `k8u-cni013` の規則が消え、§2.2 の 11 と同じに戻ること（pablo・.113・chirico の table。§7.3）
 - 2 つのジョブが終わったことを確かめる。トークンのファイルを消した時刻を記録する（サーバーの側では発行から 1 時間で切れる）
 - busybox の Pod の消えた後の host-local の割り当ての数が、§2.2 の 14 と同じくらいに戻ること
 
@@ -510,7 +510,9 @@ v0.1.2 の手順書 §7.2 と同じ。readinessProbe に `initialDelaySeconds` �
 
 `nft -s` は counter を除くが、NetworkPolicy の相手の Pod の IP の集合は table に入る。`longhorn-system` の Pod が作り直されると chirico・duchamp・oeilvert・pablo の table の集合が、`argocd` の Pod が作り直されると chirico の table の集合が変わる。入れ替わりの前後で差が出たら、その間に Pod が変わったか（§4.2 の 11 の比較）と突き合わせて見分ける。
 
-`k8u-cni013` の NetworkPolicy の規則は、srv-a・srv-b のノード（pablo、.113）の table に、名前空間を作ってから消すまでの間だけ入る（§2.2 の値はその前、§4.2 の値はその間、§4.4 の `final` は消した後）。§4.2 の 7 で比べるときは、`k8u-cni013/` のコメントの行と、その集合を除いて比べる。既存の集合 `isolated_ingress_v4`・`isolated_ingress_v6` にも、NetworkPolicy の対象になった srv-a（pablo）・srv-b（.113）の IP が入る（v0.1.2 の本番で pablo 265 → 295 行、.113 110 → 140 行）。これも `k8u-cni013` の差として除く。
+`k8u-cni013` の NetworkPolicy の規則は、srv-a・srv-b のノード（pablo、.113）の table に、名前空間を作ってから消すまでの間だけ入る（§2.2 の値はその前、§4.2 の値はその間、§4.4 の `final` は消した後）。§4.2 の 7 で比べるときは、`k8u-cni013/` のコメントの行と、その集合を除いて比べる。既存の集合 `isolated_ingress_v4`・`isolated_ingress_v6` にも、NetworkPolicy の対象になった srv-a（pablo）・srv-b（.113）の IP が入る（v0.1.2・v0.1.3 の本番で pablo 265 → 295 行、.113 110 → 140 行）。これも `k8u-cni013` の差として除く。
+
+chirico の table の argocd の NetworkPolicy の peer の集合（全名前空間の Pod を選ぶもの）にも、`k8u-cni013` の 5 つの Pod の IP（v4 と v6）が入る（v0.1.3 の本番で 1017 → 1038 行。chain・規則の形は同じ）。これも `k8u-cni013` の差として除く。
 
 ### 7.4 image GC と古いイメージ
 
