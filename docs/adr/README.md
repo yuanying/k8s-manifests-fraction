@@ -21,6 +21,12 @@
 | [0007](0007-corefile-shaped-like-kubeadm.md) | CoreDNS の Corefile は kubeadm と同じ形にそろえる | `cache` の `disable` は `cluster.local` だけ、`max_concurrent` は入れない |
 | [0008](0008-approval-and-credentials-for-production-changes.md) | 本番の変更は節目でだけ承認を取り、短命の admin トークンで行い、etcd のバックアップと前の版の render で戻せるようにする | ✋✋ と ✋、止める条件、`fraction-auditor` と `infra-admin`、ロールバックは kubelet を先に control-plane を最後に |
 
+0009 は、kube-apiserver の audit のログを入れたとき（2026-11。手順は `docs/apiserver-audit/runbook.md`）の判断。
+
+| # | 題 | 決めたこと |
+|---|---|---|
+| [0009](0009-apiserver-audit-log-on-the-node.md) | kube-apiserver の audit のログを control-plane の node のファイルに書き、policy と引数は kustomization の patch で足す | webhook にしない。基本は Metadata、部品ではない身元の書き込みは Request、Secret・ConfigMap・token は Metadata。`extra_args` は bootstrap の kube-apiserver にも入るので使わない。全台停止からの復旧は audit に頼らない |
+
 ## ほかのリポジトリの ADR
 
 - cnidaria-cni の ADR 0001: cnidaria は標準の CNI plugins（bridge・host-local・portmap）を `/opt/cni/bin` にコピーしない。置くのはノードの構築側（porkadot の `install kubelet`）

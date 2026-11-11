@@ -1,0 +1,133 @@
+# Audit policy for the kube-apiserver of fraction (docs/adr/0009).
+# The first rule that matches a request decides its level.
+#
+# - Most requests are logged at Metadata.
+# - Writes by identities that are not part of the cluster (people and
+#   ServiceAccounts outside the control plane) are logged at Request, so the
+#   body shows what was changed.
+# - Secrets, ConfigMaps and token requests stay at Metadata for everyone.
+# - Health checks, events, lease renewals, token and access reviews, and the
+#   reads of the cluster components are dropped as noise.
+#
+# Do not name the ServiceAccounts or the instances of this cluster here (this
+# repository is public). The components below are the identities that
+# Kubernetes and porkadot define for every cluster.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+- RequestReceived
+omitManagedFields: true
+rules:
+# Probes, version and metrics.
+- level: None
+  nonResourceURLs:
+  - /healthz*
+  - /livez*
+  - /readyz*
+  - /version
+  - /metrics
+# Events are written by every component and tell nothing about who changed what.
+- level: None
+  resources:
+  - group: ""
+    resources: ["events"]
+  - group: events.k8s.io
+    resources: ["events"]
+# Leader election and node heartbeats renew leases every few seconds.
+# Creating and deleting a lease stays at Metadata (rules below).
+- level: None
+  verbs: ["get", "list", "watch", "update"]
+  resources:
+  - group: coordination.k8s.io
+    resources: ["leases"]
+# Delegated authentication and authorization (aggregated APIs, metrics
+# proxies) ask on every request. The body of a TokenReview holds a token.
+- level: None
+  resources:
+  - group: authentication.k8s.io
+    resources: ["tokenreviews"]
+  - group: authorization.k8s.io
+    resources: ["subjectaccessreviews"]
+# Exec, attach, port-forward and proxy, by anyone. Placed before the rules that
+# drop the components so that none of them is ever dropped.
+- level: Metadata
+  resources:
+  - group: ""
+    resources: ["pods/exec", "pods/attach", "pods/portforward", "pods/proxy", "nodes/proxy", "services/proxy"]
+# Reads of the cluster components.
+- level: None
+  verbs: ["get", "list", "watch"]
+  userGroups: ["system:nodes"]
+- level: None
+  verbs: ["get", "list", "watch"]
+  users: &components
+  # Loopback clients of the kube-apiserver itself.
+  - system:apiserver
+  # Certificate users of the components in the Kubernetes bootstrap policy.
+  - system:kube-controller-manager
+  - system:kube-scheduler
+  - system:kube-proxy
+  # porkadot runs these components with ServiceAccounts in kube-system.
+  - system:serviceaccount:kube-system:kube-controller-manager
+  - system:serviceaccount:kube-system:kube-scheduler
+  - system:serviceaccount:kube-system:kube-proxy
+  # The controllers of kube-controller-manager
+  # (--use-service-account-credentials=true). These are the subjects of the
+  # ClusterRoleBindings system:controller:* of the Kubernetes bootstrap policy.
+  - system:serviceaccount:kube-system:attachdetach-controller
+  - system:serviceaccount:kube-system:certificate-controller
+  - system:serviceaccount:kube-system:clusterrole-aggregation-controller
+  - system:serviceaccount:kube-system:cronjob-controller
+  - system:serviceaccount:kube-system:daemon-set-controller
+  - system:serviceaccount:kube-system:deployment-controller
+  - system:serviceaccount:kube-system:device-taint-eviction-controller
+  - system:serviceaccount:kube-system:disruption-controller
+  - system:serviceaccount:kube-system:endpoint-controller
+  - system:serviceaccount:kube-system:endpointslice-controller
+  - system:serviceaccount:kube-system:endpointslicemirroring-controller
+  - system:serviceaccount:kube-system:ephemeral-volume-controller
+  - system:serviceaccount:kube-system:expand-controller
+  - system:serviceaccount:kube-system:generic-garbage-collector
+  - system:serviceaccount:kube-system:horizontal-pod-autoscaler
+  - system:serviceaccount:kube-system:job-controller
+  - system:serviceaccount:kube-system:kube-apiserver-serving-clustertrustbundle-publisher
+  - system:serviceaccount:kube-system:legacy-service-account-token-cleaner
+  - system:serviceaccount:kube-system:namespace-controller
+  - system:serviceaccount:kube-system:node-controller
+  - system:serviceaccount:kube-system:persistent-volume-binder
+  - system:serviceaccount:kube-system:pod-garbage-collector
+  - system:serviceaccount:kube-system:podcertificaterequestcleaner
+  - system:serviceaccount:kube-system:pv-protection-controller
+  - system:serviceaccount:kube-system:pvc-protection-controller
+  - system:serviceaccount:kube-system:replicaset-controller
+  - system:serviceaccount:kube-system:replication-controller
+  - system:serviceaccount:kube-system:resource-claim-controller
+  - system:serviceaccount:kube-system:resourcequota-controller
+  - system:serviceaccount:kube-system:root-ca-cert-publisher
+  - system:serviceaccount:kube-system:route-controller
+  - system:serviceaccount:kube-system:selinux-warning-controller
+  - system:serviceaccount:kube-system:service-account-controller
+  - system:serviceaccount:kube-system:service-cidrs-controller
+  - system:serviceaccount:kube-system:service-controller
+  - system:serviceaccount:kube-system:statefulset-controller
+  - system:serviceaccount:kube-system:storage-version-migrator-controller
+  - system:serviceaccount:kube-system:ttl-after-finished-controller
+  - system:serviceaccount:kube-system:ttl-controller
+  - system:serviceaccount:kube-system:validatingadmissionpolicy-status-controller
+  - system:serviceaccount:kube-system:volumeattributesclass-protection-controller
+# Secrets, ConfigMaps and token requests never get their body logged.
+- level: Metadata
+  resources:
+  - group: ""
+    resources: ["secrets", "configmaps", "serviceaccounts/token"]
+# Writes of the cluster components.
+- level: Metadata
+  userGroups: ["system:nodes"]
+- level: Metadata
+  users: *components
+# Writes by everyone else: people and the ServiceAccounts outside the control
+# plane.
+- level: Request
+  verbs: ["create", "update", "patch", "delete", "deletecollection"]
+# Everything else, such as the reads by people and ServiceAccounts.
+- level: Metadata
