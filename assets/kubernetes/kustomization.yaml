@@ -26,3 +26,73 @@ patches:
           - effect: NoSchedule
             key: nvidia.com/gpu
             operator: Exists
+# Audit log of the kube-apiserver (docs/adr/0009).
+# The arguments are added here, not with kubernetes.apiserver.extra_args in
+# porkadot.yaml: porkadot puts extra_args into the bootstrap kube-apiserver
+# too, which has no volume for the policy and would then fail to start.
+- target:
+    group: apps
+    version: v1
+    kind: DaemonSet
+    name: kube-apiserver
+    namespace: kube-system
+  patch: |-
+    - op: test
+      path: /spec/template/spec/containers/0/name
+      value: kube-apiserver
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-policy-file=/etc/kubernetes/audit/policy.yaml
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-log-path=/var/log/kubernetes/audit/audit.log
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-log-format=json
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-log-maxsize=100
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-log-maxbackup=10
+    - op: add
+      path: /spec/template/spec/containers/0/command/-
+      value: --audit-log-maxage=7
+- patch: |-
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: kube-apiserver
+      namespace: kube-system
+    spec:
+      template:
+        spec:
+          containers:
+          - name: kube-apiserver
+            volumeMounts:
+            - mountPath: /etc/kubernetes/audit
+              name: audit-policy
+              readOnly: true
+            - mountPath: /var/log/kubernetes/audit
+              name: audit-log
+              readOnly: false
+          volumes:
+          - name: audit-policy
+            configMap:
+              name: kube-apiserver-audit-policy
+          - name: audit-log
+            hostPath:
+              path: /var/log/kubernetes/audit
+              type: DirectoryOrCreate
+
+configMapGenerator:
+# The hash suffix in the name rolls the kube-apiserver when the policy changes.
+# The component label puts it into the first apply of install.sh, which applies
+# only the objects of the kube-apiserver before waiting for its rollout.
+- name: kube-apiserver-audit-policy
+  namespace: kube-system
+  files:
+  - policy.yaml=audit/policy.yaml
+  options:
+    labels:
+      app.kubernetes.io/component: kube-apiserver
