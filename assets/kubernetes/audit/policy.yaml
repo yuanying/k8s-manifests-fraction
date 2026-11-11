@@ -4,7 +4,8 @@
 # - Most requests are logged at Metadata.
 # - Writes by identities that are not part of the cluster (people and
 #   ServiceAccounts outside the control plane) are logged at Request, so the
-#   body shows what was changed.
+#   body shows what was changed. Writes to the status subresource are the
+#   exception and stay at Metadata.
 # - Secrets, ConfigMaps and token requests stay at Metadata for everyone.
 # - Health checks, events, lease renewals, token and access reviews, and the
 #   reads of the cluster components are dropped as noise.
@@ -125,6 +126,18 @@ rules:
   userGroups: ["system:nodes"]
 - level: Metadata
   users: *components
+# The status subresource of any resource in any group (core, named groups and
+# CRDs), by anyone. Controllers write what they observed there every few
+# seconds, and it does not change what the workloads run; the rules on the
+# spec side are what the body is kept for. Who wrote which status, and when,
+# stays. Placed after the rules that drop the reads of the components, so that
+# those reads stay dropped, and right before the Request rule, so that only the
+# writes by people and the ServiceAccounts outside the control plane change.
+# Other subresources, such as scale, are not matched and stay at Request.
+- level: Metadata
+  resources:
+  - group: "*"
+    resources: ["*/status"]
 # Writes by everyone else: people and the ServiceAccounts outside the control
 # plane.
 - level: Request
