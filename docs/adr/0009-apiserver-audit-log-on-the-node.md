@@ -64,6 +64,29 @@
 - **policy を node の上のファイルとして置く**: 3 台に手で配ることになり、git の版と DaemonSet の入れ替わりに結びつかない。復旧の道でも ConfigMap と差が無い（bootstrap の kube-apiserver は policy を使わず、DaemonSet の Pod はもともと Secret を API から受け取っている）
 - **policy の部品を名前空間（kube-system の ServiceAccount 全部）で除く**: kube-system の admin の ServiceAccount の書き込みの本文まで落ちる
 
+## 追記: status の subresource への書き込みは、誰の要求でも Metadata にする（2026-11-11）
+
+本 ADR の「本 ADR で決定しないこと」の「ログの量を見たあとの policy の見直し」に当たる。Decision 項 2（何を残すか）の範囲の中の見直しで、policy の変更だけで行う。Decision 項 1・3・4 は変えない。
+
+### Context
+
+本番に入れた後、ログが 1 台で 7 日分を残せる量を大きく超えた。要求の多い台では、量の 6 割ほどが、ストレージの operator の ServiceAccount が自分の CR の `status` の subresource を数秒おきに `update` する出来事だった。部品ではない身元の書き込みなので Request（本文つき）で残っていた。1 件の大きさは Request で Metadata のおよそ 5 倍になる。
+
+status は controller が観測した結果を書く場所で、書き換えても workload が何を動かすかは変わらない。異常の規則が本文で見たいのは spec の側（image・ServiceAccount・volume・RoleBinding の中身など）である。
+
+### Decision
+
+- **どのリソースの `status` の subresource への要求も、誰の要求でも Metadata にする。** core・名前付きの group・CRD の group のすべてに当てる。誰が・いつ・どのリソースの status を書いたか・結果は残り、本文だけが残らない。Decision 項 2 の「部品ではない身元の書き込みは Request」は、status の subresource を除いたものになる
+- 決め方を特定の operator の名前にしない。クラスタに固有の ServiceAccount の名前を policy に書かずに済み（このリポジトリは public）、別の operator が増えても同じ扱いになる
+- 次は変えない: exec・attach・port-forward・proxy はどの規則でも落とさない。Secret・ConfigMap・token は誰の要求でも Metadata。部品の読みは落とし、部品の書き込みは Metadata。status と名の付かない subresource（`scale` など）と spec への書き込みは、部品ではない身元なら Request のまま
+- 読み（get・list・watch）は落とさない。誰が何を読んだかを残す。node に残る日数が足りないことは、収集役と溜め場（Loki）に送ることで補う
+
+### Consequences
+
+- 要求の多い台の量は半分ほどになる見込み。ただし 1 台で 7 日分を残す目安にはまだ届かない。残りの多くは spec の側の書き込み（GitOps の controller の自分の CR への `patch` など）と読みで、本文や記録を残すために受け入れる
+- status への書き込みの本文は残らない。status を書き換えて controller や人を欺く操作（たとえば Service の LoadBalancer の宛先、CertificateSigningRequest の status に載る発行済みの証明書、Pod の Ready の状態）は、誰が・いつ・どのリソースに書いたかでしか追えない。spec の側と違い、status の書き込みの権限を持つ身元は限られるので、身元と頻度で見る規則で拾う
+- 規則がリソースの名前ではなく subresource の名前で当たるので、新しい CRD や operator が増えても policy を変えずに済む
+
 ## Related ADRs
 
 - Related: ADR-0008 本番の変更は節目でだけ承認を取り、短命の admin トークンで行い、etcd のバックアップと前の版の render で戻せるようにする（入れ方はその Decision の「承認」「資格」「戻せるようにしておくこと」に従う）
@@ -74,3 +97,7 @@
 - porkadot の `lib/porkadot/configs/kubernetes.rb` の `Porkadot::Configs::Component#args` と、`lib/porkadot/assets/bootstrap/manifests/kube-apiserver.bootstrap.yaml.erb`（2026-11-11 確認）
 - 本番の DaemonSet `kube-system/kube-apiserver` の `updateStrategy`、Pod の一覧（checkpointer が無いこと）、`system:controller:*` の ClusterRoleBinding、control-plane のディスクの容量（`fraction-auditor` で読んだ。2026-11-11）
 - kind（`kindest/node:v1.37.0` に `registry.k8s.io/kube-apiserver:v1.37.2` を入れたもの）で、この policy と引数の kube-apiserver が起動してログを書くこと、policy のファイルが無いと起動しないことを確かめた（2026-11-11。記録は `docs/apiserver-audit/runbook.md` の「手元で確かめたこと」）
+- 追記（status の subresource）の根拠:
+  - Kubernetes v1.37.2 の `staging/src/k8s.io/apiserver/pkg/audit/policy/checker.go` の `ruleMatchesResource` と、`staging/src/k8s.io/apiserver/pkg/apis/audit/v1/types.go` の `GroupResources`（`group` の `*` がすべての group に、`resources` の `*/status` がすべての status の subresource に当たる。2026-11-11 確認）
+  - 本番の 3 台の audit のログの直近 2 万行の集計（`fraction` の control-plane で集計だけを読んだ。2026-11-11 10:4xZ）。要求の多い台は約 36 MB/時で、その 63% が部品ではない身元の status への書き込み（Request）だった。同じ出来事を Metadata にすると、その台は約 18 MB/時になる。ほかの台では status への書き込みはほぼ無かった
+  - kind（`kindest/node:v1.37.0` に `registry.k8s.io/kube-apiserver:v1.37.2` を入れたもの）で、人と ServiceAccount の、CRD の CR・Deployment・Service・Namespace の status への update・patch が Metadata、同じ身元の spec と `scale` への書き込みが Request で残り、Secret・ConfigMap・token・exec・probe・event・lease の扱いが変わらないことを確かめた（2026-11-11。記録は `docs/apiserver-audit/runbook-status-metadata.md`）

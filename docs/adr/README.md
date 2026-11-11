@@ -25,7 +25,7 @@
 
 | # | 題 | 決めたこと |
 |---|---|---|
-| [0009](0009-apiserver-audit-log-on-the-node.md) | kube-apiserver の audit のログを control-plane の node のファイルに書き、policy と引数は kustomization の patch で足す | webhook にしない。基本は Metadata、部品ではない身元の書き込みは Request、Secret・ConfigMap・token は Metadata。`extra_args` は bootstrap の kube-apiserver にも入るので使わない。全台停止からの復旧は audit に頼らない |
+| [0009](0009-apiserver-audit-log-on-the-node.md) | kube-apiserver の audit のログを control-plane の node のファイルに書き、policy と引数は kustomization の patch で足す | webhook にしない。基本は Metadata、部品ではない身元の書き込みは Request、Secret・ConfigMap・token は Metadata。`extra_args` は bootstrap の kube-apiserver にも入るので使わない。全台停止からの復旧は audit に頼らない。追記で、status の subresource への書き込みは誰のものでも Metadata |
 
 ## ほかのリポジトリの ADR
 
